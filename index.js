@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, EmbedBuilder, PermissionFlagsBits, ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, PermissionFlagsBits, ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags } = require('discord.js');
 const fs = require('fs');
 require('dotenv').config();
 const http = require('http');
@@ -7,6 +7,14 @@ http.createServer((req,res)=>{
   res.writeHead(200,{'Content-Type':'text/plain'});
   res.end('ROAR BOT #5318 is READY - '+new Date().toISOString());
 }).listen(PORT, ()=>console.log(`[WEB] Listening on ${PORT}`));
+
+// Anti-crash biar gak exit status 1 lagi
+process.on('unhandledRejection', err => {
+  console.error('[ANTI-CRASH] Unhandled Rejection:', err.message);
+});
+process.on('uncaughtException', err => {
+  console.error('[ANTI-CRASH] Uncaught Exception:', err.message);
+});
 
 const client = new Client({
     intents: [
@@ -104,7 +112,6 @@ const pendingDrafts=new Map();
 function loadDraftsToMap(){
     const data = loadDraftFile();
     Object.entries(data).forEach(([k,v])=>{
-        // restore dateObj as string to Date if needed
         if(v.dateStr) v.dateObj = new Date(v.dateStr);
         pendingDrafts.set(k,v);
     });
@@ -123,13 +130,9 @@ function persistDrafts(){
 
 async function updateMemberCount(guild){ try{ const ch=guild.channels.cache.find(c=>c.name.includes('Member:') && c.type===ChannelType.GuildVoice); if(ch) await ch.setName(`👥・Member: ${guild.memberCount}`).catch(()=>{}); }catch(e){} }
 
-client.once('ready',()=>{
-    console.log(`🦁 ${client.user.tag} - AUTO ROLLING - Today ${formatIndo(new Date())}`);
-    if(!fs.existsSync(INV_FILE)) saveInv(loadInv());
-    loadDraftsToMap();
-});
 client.once('clientReady',()=>{
     console.log(`🦁 ${client.user.tag} - AUTO ROLLING - Today ${formatIndo(new Date())}`);
+    if(!fs.existsSync(INV_FILE)) saveInv(loadInv());
     loadDraftsToMap();
 });
 
@@ -137,6 +140,7 @@ client.on('guildMemberAdd',async(m)=>{ try{ await updateMemberCount(m.guild); }c
 client.on('guildMemberRemove',async(m)=>{ try{ await updateMemberCount(m.guild); }catch(e){} });
 
 client.on('interactionCreate', async (interaction)=>{
+  try{
     if(interaction.isButton()){
         if(interaction.customId.startsWith('role_')){
             const target = interaction.customId.replace('role_','');
@@ -144,22 +148,29 @@ client.on('interactionCreate', async (interaction)=>{
             try{
                 await interaction.guild.roles.fetch();
                 const role = interaction.guild.roles.cache.find(r=>r.name===target);
-                if(!role) return interaction.reply({content:`❌ Role ${target} belum ada! Jalanin !setup-roar-gate dulu.`, ephemeral:true});
+                if(!role) {
+                    if(interaction.replied || interaction.deferred) return;
+                    return interaction.reply({content:`❌ Role ${target} belum ada!`, flags: MessageFlags.Ephemeral}).catch(()=>{});
+                }
                 const botMember = await interaction.guild.members.fetch(client.user.id);
                 if(botMember.roles.highest.position <= role.position){
-                    return interaction.reply({content:`❌ Role bot gue di bawah ${target}! Naikin posisi role bot di Server Settings > Roles ke atas.`, ephemeral:true});
+                    if(interaction.replied || interaction.deferred) return;
+                    return interaction.reply({content:`❌ Role bot gue di bawah ${target}!`, flags: MessageFlags.Ephemeral}).catch(()=>{});
                 }
                 const member = await interaction.guild.members.fetch(interaction.user.id);
                 if(member.roles.cache.has(role.id)){
                     await member.roles.remove(role);
-                    return interaction.reply({content:`✅ Role ${target} dilepas!`, ephemeral:true});
+                    if(interaction.replied || interaction.deferred) return;
+                    return interaction.reply({content:`✅ Role ${target} dilepas!`, flags: MessageFlags.Ephemeral}).catch(()=>{});
                 } else {
                     await member.roles.add(role);
-                    return interaction.reply({content:`✅ Role ${target} diambil!`, ephemeral:true});
+                    if(interaction.replied || interaction.deferred) return;
+                    return interaction.reply({content:`✅ Role ${target} diambil!`, flags: MessageFlags.Ephemeral}).catch(()=>{});
                 }
             }catch(e){
                 console.error(e);
-                return interaction.reply({content:`❌ Gagal: ${e.message}`, ephemeral:true});
+                if(interaction.replied || interaction.deferred) return;
+                return interaction.reply({content:`❌ Gagal: ${e.message}`, flags: MessageFlags.Ephemeral}).catch(()=>{});
             }
         }
 
@@ -172,25 +183,28 @@ client.on('interactionCreate', async (interaction)=>{
             const jenisMapInput=new TextInputBuilder().setCustomId('jenis_map').setLabel('Jenis Event & Map').setStyle(TextInputStyle.Short).setPlaceholder('War - JAVA KOPLO').setRequired(true).setMaxLength(100);
             const kontakInput=new TextInputBuilder().setCustomId('kontak').setLabel('Kontak & Catatan').setStyle(TextInputStyle.Paragraph).setPlaceholder('Kontak: @username').setRequired(true).setMaxLength(500);
             modal.addComponents(new ActionRowBuilder().addComponents(famsInput), new ActionRowBuilder().addComponents(tanggalInput), new ActionRowBuilder().addComponents(jamInput), new ActionRowBuilder().addComponents(jenisMapInput), new ActionRowBuilder().addComponents(kontakInput));
-            return await interaction.showModal(modal);
+            return await interaction.showModal(modal).catch(()=>{});
         }
         if(interaction.customId.startsWith('send_invitation')){
-            await interaction.deferUpdate();
+            if(interaction.deferred || interaction.replied){
+                // sudah di-ack, jangan defer lagi
+            } else {
+                await interaction.deferUpdate().catch(()=>{});
+            }
             const channel=interaction.channel;
             let draft=pendingDrafts.get(channel.id);
-            // fallback: try load from file again
             if(!draft){
                 loadDraftsToMap();
                 draft=pendingDrafts.get(channel.id);
             }
-            if(!draft) return interaction.followUp({content:'❌ Draft tidak ditemukan! Coba buat ticket baru di #ticket. Bot abis restart jadi draft lama hilang.', ephemeral:true});
+            if(!draft) return interaction.followUp({content:'❌ Draft tidak ditemukan! Coba buat ticket baru di #ticket.', flags: MessageFlags.Ephemeral}).catch(()=>{});
             const invData=loadInv();
             const count=(invData[draft.key]||[]).length;
             if(count>=3){
                 const avail=getAvailableDates(invData,60).filter(a=>a.free>0).slice(0,7);
                 let availText=avail.map(a=>`• ${formatIndo(a.date)} (${a.free} slot)`).join('\n');
                 const embedFull=new EmbedBuilder().setColor(0xFF0000).setTitle(`❌ Tanggal Full!`).setDescription(`**Tanggal ${formatIndoFromKey(draft.key)} full 3/3!**\n\nTanggal kosong terdekat:\n${availText}`).setTimestamp();
-                return await channel.send({content:`<@${draft.creatorId}>`, embeds:[embedFull]});
+                return await channel.send({content:`<@${draft.creatorId}>`, embeds:[embedFull]}).catch(()=>{});
             }
             draft.status='waiting_admin'; pendingDrafts.set(channel.id,draft); persistDrafts();
             const waitingEmbed=new EmbedBuilder().setColor(0xFFFF00).setTitle(`⏳ MENUNGGU BALASAN ADMIN - ${draft.fams}`).setDescription(`**Mohon ditunggu, undangan kamu sedang direview ADMIN ke atas!**`).addFields({name:'📅 Tanggal',value:formatIndoFromKey(draft.key),inline:true},{name:'🕐 Jam',value:draft.jam,inline:true},{name:'🎯 Event',value:draft.jenis,inline:true}).setFooter({text:`Menunggu persetujuan...`}).setTimestamp();
@@ -199,31 +213,41 @@ client.on('interactionCreate', async (interaction)=>{
             const adminMention=adminRoles.map(r=>`<@&${r.id}>`).join(' ');
             const adminEmbed=new EmbedBuilder().setColor(0xFFA500).setTitle(`🎫 UNDANGAN BARU - BUTUH PERSETUJUAN!`).setDescription(`Fams ${draft.fams} mengundang ${CONFIG.FAMS_NAME}!`).addFields({name:'👤 Pengirim',value:`<@${draft.creatorId}>`,inline:true},{name:'📅 Tanggal',value:`${formatIndoFromKey(draft.key)} (${count}/3)`,inline:true},{name:'🕐 Jam',value:draft.jam,inline:true},{name:'🎯 Jenis',value:draft.jenis,inline:true},{name:'🗺 Map',value:draft.map,inline:true},{name:'📞 Kontak',value:draft.kontak.substring(0,1000),inline:false}).setFooter({text:`Terima=masuk jadwal | Tolak=notif`}).setTimestamp();
             const adminRow=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`accept_invitation_${channel.id}`).setLabel('✅ Terima').setStyle(ButtonStyle.Success), new ButtonBuilder().setCustomId(`reject_invitation_${channel.id}`).setLabel('❌ Tolak').setStyle(ButtonStyle.Danger));
-            await channel.send({content:`${adminMention} - Undangan baru!`, embeds:[adminEmbed], components:[adminRow]});
+            await channel.send({content:`${adminMention} - Undangan baru!`, embeds:[adminEmbed], components:[adminRow]}).catch(()=>{});
             return;
         }
         if(interaction.customId.startsWith('accept_invitation_')){
+            // ANTI DOUBLE CLICK - FIX STATUS 1
+            if(interaction.replied || interaction.deferred){
+                return;
+            }
+            try{
+                await interaction.deferReply().catch(()=>{});
+            }catch(e){
+                // already acknowledged, stop
+                return;
+            }
             const member=interaction.member;
             const isAdmin=member.roles.cache.some(r=>['ADMIN','HIGH RANK','CO-OWNER','OWNER'].includes(r.name)) || member.permissions.has(PermissionFlagsBits.Administrator);
-            if(!isAdmin) return interaction.reply({content:'❌ Hanya ADMIN ke atas!',ephemeral:true});
+            if(!isAdmin) {
+                return interaction.editReply({content:'❌ Hanya ADMIN ke atas!'}).catch(()=> interaction.followUp({content:'❌ Hanya ADMIN ke atas!', flags: MessageFlags.Ephemeral}).catch(()=>{}));
+            }
             const channelId=interaction.customId.replace('accept_invitation_','');
             let draft=pendingDrafts.get(channelId) || pendingDrafts.get(interaction.channel.id);
             if(!draft){
                 loadDraftsToMap();
                 draft=pendingDrafts.get(channelId) || pendingDrafts.get(interaction.channel.id);
             }
-            if(!draft) return interaction.reply({content:'❌ Draft tidak ditemukan! File draft hilang karena restart. Suruh user buat ulang.',ephemeral:true});
+            if(!draft) return interaction.editReply({content:'❌ Draft tidak ditemukan! File draft hilang karena restart. Suruh user buat ulang.'}).catch(()=>{});
             const invData=loadInv();
             const count=(invData[draft.key]||[]).length;
-            if(count>=3) return interaction.reply({content:`❌ Gagal! Tanggal ${formatIndoFromKey(draft.key)} sudah full!`,ephemeral:true});
-            // add to invitation
+            if(count>=3) return interaction.editReply({content:`❌ Gagal! Tanggal ${formatIndoFromKey(draft.key)} sudah full!`}).catch(()=>{});
             if(!invData[draft.key]) invData[draft.key]=[];
             invData[draft.key].push({fams:draft.fams, jam:draft.jam, jenis:draft.jenis, map:draft.map, kontak:draft.kontak, creatorId:draft.creatorId, createdAt:new Date().toISOString()});
             saveInv(invData);
-            const successEmbed=new EmbedBuilder().setColor(0x00FF00).setTitle(`✅ UNDANGAN DITERIMA!`).setDescription(`Undangan **${draft.fams}** masuk jadwal!`).addFields({name:'📅 Tanggal',value:formatIndoFromKey(draft.key),inline:true},{name:'🕐 Jam',value:draft.jam,inline:true},{name:'👥 Fams',value:draft.fams,inline:true}).setFooter({text:`Diterima oleh ${member.displayName}`}).setTimestamp();
-            await interaction.reply({embeds:[successEmbed]});
-            await interaction.channel.send({content:`<@${draft.creatorId}> Undangan kamu DITERIMA dan masuk jadwal!`, embeds:[successEmbed]});
-            // update jadwal channel
+            const successEmbed=new EmbedBuilder().setColor(0x00FF00).setTitle(`✅ UNDANGAN DITERIMA!`).setDescription(`Undangan **${draft.fams}** pada ${formatIndoFromKey(draft.key)} DITERIMA oleh ${member}!`).addFields({name:'📅 Tanggal',value:formatIndoFromKey(draft.key),inline:true},{name:'🕐 Jam',value:draft.jam,inline:true},{name:'👥 Fams',value:draft.fams,inline:true}).setFooter({text:`Diterima oleh ${member.displayName}`}).setTimestamp();
+            await interaction.editReply({content:`<@${draft.creatorId}>`, embeds:[successEmbed]}).catch(()=>{});
+            await interaction.channel.send({content:`<@${draft.creatorId}> Undangan kamu DITERIMA dan masuk jadwal!`, embeds:[successEmbed]}).catch(()=>{});
             try{ await updateJadwalChannel(guild); }catch(e){}
             pendingDrafts.delete(channelId); pendingDrafts.delete(interaction.channel.id); persistDrafts();
             setTimeout(async()=>{ try{ await interaction.channel.delete(); }catch(e){} },10000);
@@ -232,22 +256,29 @@ client.on('interactionCreate', async (interaction)=>{
         if(interaction.customId.startsWith('reject_invitation_')){
             const member=interaction.member;
             const isAdmin=member.roles.cache.some(r=>['ADMIN','HIGH RANK','CO-OWNER','OWNER'].includes(r.name)) || member.permissions.has(PermissionFlagsBits.Administrator);
-            if(!isAdmin) return interaction.reply({content:'❌ Hanya ADMIN ke atas!',ephemeral:true});
+            if(!isAdmin) {
+                if(interaction.replied || interaction.deferred) return;
+                return interaction.reply({content:'❌ Hanya ADMIN ke atas!', flags: MessageFlags.Ephemeral}).catch(()=>{});
+            }
             const modal=new ModalBuilder().setCustomId(`reject_modal_${interaction.channel.id}`).setTitle('❌ Tolak Undangan');
             const reasonInput=new TextInputBuilder().setCustomId('reason').setLabel('Alasan menolak').setStyle(TextInputStyle.Paragraph).setPlaceholder('Maaf tanggal tersebut ada war internal').setRequired(true).setMaxLength(500);
             modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
-            return await interaction.showModal(modal);
+            return await interaction.showModal(modal).catch(()=>{});
         }
         if(interaction.customId==='close_ticket'){
             const isAdmin=interaction.member.roles.cache.some(r=>['ADMIN','HIGH RANK','CO-OWNER','OWNER'].includes(r.name)) || interaction.member.permissions.has(PermissionFlagsBits.Administrator);
-            if(!isAdmin && !interaction.channel.name.includes(interaction.user.username.toLowerCase())) return interaction.reply({content:'❌ Hanya ADMIN atau pembuat ticket!',ephemeral:true});
-            await interaction.reply({content:'🔒 Closing in 5s...'});
+            if(!isAdmin && !interaction.channel.name.includes(interaction.user.username.toLowerCase())) {
+                if(interaction.replied || interaction.deferred) return;
+                return interaction.reply({content:'❌ Hanya ADMIN atau pembuat ticket!', flags: MessageFlags.Ephemeral}).catch(()=>{});
+            }
+            if(interaction.replied || interaction.deferred) return;
+            await interaction.reply({content:'🔒 Closing in 5s...'}).catch(()=>{});
             setTimeout(async()=>{ try{ await interaction.channel.delete(); }catch(e){} },5000);
         }
     }
     if(interaction.isModalSubmit()){
         if(interaction.customId==='invitation_modal'){
-            await interaction.deferReply({ephemeral:true});
+            await interaction.deferReply({flags: MessageFlags.Ephemeral}).catch(()=>{});
             try{
                 const fams=interaction.fields.getTextInputValue('fams').trim();
                 const tanggalStr=interaction.fields.getTextInputValue('tanggal').trim();
@@ -257,9 +288,9 @@ client.on('interactionCreate', async (interaction)=>{
                 let jenis=jenisMap; let map=CONFIG.MAP_NAME;
                 if(jenisMap.includes('-')){ const parts=jenisMap.split('-'); jenis=parts[0].trim(); map=parts.slice(1).join('-').trim()||CONFIG.MAP_NAME; }
                 const dateObj=parseDate(tanggalStr);
-                if(!dateObj) return interaction.editReply({content:`❌ Format tanggal salah! Gunakan DD-MM-YYYY contoh: 05-09-2026`});
+                if(!dateObj) return interaction.editReply({content:`❌ Format tanggal salah! Gunakan DD-MM-YYYY contoh: 05-09-2026`}).catch(()=>{});
                 const today=new Date(); today.setHours(0,0,0,0);
-                if(dateObj<today) return interaction.editReply({content:`❌ Tanggal tidak boleh di masa lalu! Hari ini ${formatIndo(today)}, kamu pilih ${formatIndo(dateObj)}`});
+                if(dateObj<today) return interaction.editReply({content:`❌ Tanggal tidak boleh di masa lalu! Hari ini ${formatIndo(today)}, kamu pilih ${formatIndo(dateObj)}`}).catch(()=>{});
                 const key=toKey(dateObj);
                 const invData=loadInv();
                 const count=(invData[key]||[]).length;
@@ -267,7 +298,7 @@ client.on('interactionCreate', async (interaction)=>{
                     const avail=getAvailableDates(invData,60).filter(a=>a.free>0);
                     let availText=avail.slice(0,7).map(a=>`• **${formatIndo(a.date)}** - ${a.free} slot`).join('\n');
                     const embedFull=new EmbedBuilder().setColor(0xFF0000).setTitle(`❌ TANGGAL FULL!`).setDescription(`**Tanggal ${formatIndo(dateObj)} full 3/3!**\n\nTanggal kosong terdekat:\n${availText}`).setTimestamp();
-                    return interaction.editReply({embeds:[embedFull]});
+                    return interaction.editReply({embeds:[embedFull]}).catch(()=>{});
                 }
                 const guild=interaction.guild;
                 const adminRoles=guild.roles.cache.filter(r=>['ADMIN','HIGH RANK','CO-OWNER','OWNER'].includes(r.name));
@@ -281,12 +312,12 @@ client.on('interactionCreate', async (interaction)=>{
                 pendingDrafts.set(ticketChannel.id,draftData); persistDrafts();
                 const draftEmbed=new EmbedBuilder().setColor(0xFFA500).setTitle(`📝 FORMAT UNDANGAN - ${fams}`).setDescription(`**Cek kembali sebelum kirim ke ADMIN!**\n\nHari ini: ${formatIndo(new Date())} - Kamu pilih: ${formatIndo(dateObj)}`).addFields({name:'👥 Fams',value:fams,inline:true},{name:'📅 Tanggal',value:`${formatIndo(dateObj)} (${count}/3 → ${count+1}/3)`,inline:true},{name:'🕐 Jam',value:jam,inline:true},{name:'🎯 Jenis',value:jenis,inline:true},{name:'🗺 Map',value:map,inline:true},{name:'📞 Kontak',value:kontak.substring(0,1000),inline:false}).setFooter({text:`Jika benar, klik Kirim Undangan!`}).setTimestamp();
                 const row=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`send_invitation_${ticketChannel.id}`).setLabel('📤 Kirim Undangan ke Admin').setStyle(ButtonStyle.Success), new ButtonBuilder().setCustomId('close_ticket').setLabel('❌ Batal').setStyle(ButtonStyle.Danger));
-                await ticketChannel.send({content:`<@${interaction.user.id}> - Draft:`, embeds:[draftEmbed], components:[row]});
-                await interaction.editReply({content:`✅ Form diterima! Ticket di <#${ticketChannel.id}>`});
-            }catch(e){ console.error(e); await interaction.editReply({content:`❌ Error: ${e.message}`}); }
+                await ticketChannel.send({content:`<@${interaction.user.id}> - Draft:`, embeds:[draftEmbed], components:[row]}).catch(()=>{});
+                await interaction.editReply({content:`✅ Form diterima! Ticket di <#${ticketChannel.id}>`}).catch(()=>{});
+            }catch(e){ console.error(e); await interaction.editReply({content:`❌ Error: ${e.message}`}).catch(()=>{}); }
         }
         if(interaction.customId.startsWith('reject_modal_')){
-            await interaction.deferReply();
+            await interaction.deferReply().catch(()=>{});
             const channelId=interaction.customId.replace('reject_modal_','');
             const reason=interaction.fields.getTextInputValue('reason');
             const channel=interaction.guild.channels.cache.get(channelId) || interaction.channel;
@@ -295,13 +326,23 @@ client.on('interactionCreate', async (interaction)=>{
                 loadDraftsToMap();
                 draft=pendingDrafts.get(channelId) || pendingDrafts.get(channel.id);
             }
-            if(!draft) return interaction.editReply({content:'❌ Draft tidak ditemukan!'});
+            if(!draft) return interaction.editReply({content:'❌ Draft tidak ditemukan!'}).catch(()=>{});
             const rejectEmbed=new EmbedBuilder().setColor(0xFF0000).setTitle(`❌ UNDANGAN DITOLAK`).setDescription(`Mohon maaf <@${draft.creatorId}>, invitation anda kami tolak.`).addFields({name:'👥 Fams',value:draft.fams,inline:true},{name:'📅 Tanggal',value:formatIndoFromKey(draft.key),inline:true},{name:'📝 Alasan',value:reason,inline:false}).setFooter({text:`Ditolak oleh ${interaction.member.displayName}`}).setTimestamp();
-            await channel.send({content:`<@${draft.creatorId}>`, embeds:[rejectEmbed]});
-            await interaction.editReply({content:`✅ Ditolak: ${reason}`});
+            await channel.send({content:`<@${draft.creatorId}>`, embeds:[rejectEmbed]}).catch(()=>{});
+            await interaction.editReply({content:`✅ Ditolak: ${reason}`}).catch(()=>{});
             pendingDrafts.delete(channelId); pendingDrafts.delete(channel.id); persistDrafts();
         }
     }
+  }catch(err){
+    console.error('[Interaction Error]', err.message);
+    try{
+        if(!interaction.replied && !interaction.deferred){
+            await interaction.reply({content:'❌ Terjadi error, coba lagi!', flags: MessageFlags.Ephemeral}).catch(()=>{});
+        } else {
+            await interaction.followUp({content:'❌ Terjadi error, coba lagi!', flags: MessageFlags.Ephemeral}).catch(()=>{});
+        }
+    }catch(e){}
+  }
 });
 
 client.on('messageCreate', async (message)=>{
