@@ -1,19 +1,20 @@
-const { Client, GatewayIntentBits, EmbedBuilder, PermissionFlagsBits, ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, PermissionFlagsBits, ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags, Events } = require('discord.js');
 const fs = require('fs');
 require('dotenv').config();
 const http = require('http');
+
 const PORT = process.env.PORT || 10000;
 http.createServer((req,res)=>{
   res.writeHead(200,{'Content-Type':'text/plain'});
   res.end('ROAR BOT #5318 is READY - '+new Date().toISOString());
 }).listen(PORT, ()=>console.log(`[WEB] Listening on ${PORT}`));
 
-// Anti-crash biar gak exit status 1 lagi
+// Anti-crash
 process.on('unhandledRejection', err => {
-  console.error('[ANTI-CRASH] Unhandled Rejection:', err.message);
+  console.error('[ANTI-CRASH] Unhandled Rejection:', err);
 });
 process.on('uncaughtException', err => {
-  console.error('[ANTI-CRASH] Uncaught Exception:', err.message);
+  console.error('[ANTI-CRASH] Uncaught Exception:', err);
 });
 
 const client = new Client({
@@ -30,22 +31,18 @@ const INV_FILE = './invitations.json';
 const DRAFT_FILE = './drafts.json';
 
 function loadInv(){
-    try{ if(fs.existsSync(INV_FILE)) return JSON.parse(fs.readFileSync(INV_FILE,'utf8')); }catch(e){}
-    try{ if(fs.existsSync('/mnt/data/invitations.json')) return JSON.parse(fs.readFileSync('/mnt/data/invitations.json','utf8')); }catch(e){}
+    try{ if(fs.existsSync(INV_FILE)) return JSON.parse(fs.readFileSync(INV_FILE,'utf8')); }catch(e){ console.error('loadInv err', e.message) }
     return {};
 }
 function saveInv(data){
-    try{ fs.writeFileSync(INV_FILE, JSON.stringify(data,null,2)); }catch(e){}
-    try{ fs.writeFileSync('/mnt/data/invitations.json', JSON.stringify(data,null,2)); }catch(e){}
+    try{ fs.writeFileSync(INV_FILE, JSON.stringify(data,null,2)); }catch(e){ console.error('saveInv err', e.message) }
 }
 function loadDraftFile(){
-    try{ if(fs.existsSync(DRAFT_FILE)) return JSON.parse(fs.readFileSync(DRAFT_FILE,'utf8')); }catch(e){}
-    try{ if(fs.existsSync('/mnt/data/drafts.json')) return JSON.parse(fs.readFileSync('/mnt/data/drafts.json','utf8')); }catch(e){}
+    try{ if(fs.existsSync(DRAFT_FILE)) return JSON.parse(fs.readFileSync(DRAFT_FILE,'utf8')); }catch(e){ console.error('loadDraft err', e.message) }
     return {};
 }
 function saveDraftFile(data){
-    try{ fs.writeFileSync(DRAFT_FILE, JSON.stringify(data,null,2)); }catch(e){}
-    try{ fs.writeFileSync('/mnt/data/drafts.json', JSON.stringify(data,null,2)); }catch(e){}
+    try{ fs.writeFileSync(DRAFT_FILE, JSON.stringify(data,null,2)); }catch(e){ console.error('saveDraft err', e.message) }
 }
 function parseDate(str){
     str=str.trim().replace(/\//g,'-');
@@ -81,26 +78,18 @@ async function updateJadwalChannel(guild){
         const ch=guild.channels.cache.find(c=>c.name.includes('jadwal-invitation') && c.type===ChannelType.GuildText);
         if(!ch) return;
         const today=new Date(); today.setHours(0,0,0,0);
-        let desc=`**📅 AUTO ROLLING SCHEDULE - Hari ini: ${formatIndo(today)}**\n`;
-        desc+=`Menampilkan 30 hari ke depan dari hari ini! Jika September habis, lanjut Oktober, November, dst.\n`;
-        desc+=`Max 3 undangan/hari - Kalo full, bot kasih tanggal kosong!\n\n`;
+        let desc=`**📅 AUTO ROLLING SCHEDULE - Hari ini: ${formatIndo(today)}**\nMenampilkan 30 hari ke depan!\nMax 3 undangan/hari\n\n`;
         for(let i=0;i<30;i++){
             const date=new Date(today); date.setDate(today.getDate()+i);
             const key=toKey(date);
             const list=invData[key]||[];
-            const isToday = i===0? ' ⭐ HARI INI' : '';
-            const isTomorrow = i===1? ' (BESOK)' : '';
-            desc+=`**📅 Tgl ${formatIndo(date)} (${list.length}/3)${isToday}${isTomorrow}**\n`;
+            desc+=`**📅 Tgl ${formatIndo(date)} (${list.length}/3)${i===0?' ⭐ HARI INI':''}**\n`;
             if(list.length===0) desc+=`-\n-\n-\n`;
             else { list.forEach((inv,idx)=>{ desc+=`${idx+1}. ${inv.jam} - **${inv.fams}**\n`; }); for(let s=list.length; s<3; s++) desc+=`-\n`; }
             desc+=`\n`;
             if(desc.length>3800) break;
         }
-        const embed=new EmbedBuilder().setColor(0x00FF00).setTitle(`📅 JADWAL INVITATION - AUTO ROLL - ${CONFIG.FAMS_NAME}`).setDescription(desc.substring(0,4000))
-       .addFields(
-            {name:'📌 Jawaban: Kalo 30 September selesai?',value:`**IYA! Langsung lanjut Oktober!**\nBot sekarang auto rolling 30 hari ke depan dari hari ini (${formatIndo(today)}).`,inline:false},
-            {name:'✅ Jadwal Manual (11 event)',value:`Sudah masuk: 01 DREAMLAND DISCO, 02 GO LABEBE + YBC CLUB, 03 NOSTRA + CARGO, 05 TYONG CLUB, 07 RISE PARTY, 09 FLORE DIAMOND, 10 RUANG PRIVASI + KAWASAN LDR, 12 STREET CHILDREEN`,inline:false}
-        ).setFooter({text:`Auto rolling 30 hari • Hari ini ${formatIndo(today)}`}).setTimestamp();
+        const embed=new EmbedBuilder().setColor(0x00FF00).setTitle(`📅 JADWAL INVITATION - ${CONFIG.FAMS_NAME}`).setDescription(desc.substring(0,4000)).setFooter({text:`Auto rolling 30 hari • Hari ini ${formatIndo(today)}`}).setTimestamp();
         const msgs=await ch.messages.fetch({limit:15}).catch(()=>null);
         const botMsg=msgs?msgs.find(m=>m.author.id===client.user.id && m.embeds[0]?.title?.includes('JADWAL INVITATION')):null;
         if(botMsg) await botMsg.edit({embeds:[embed]}).catch(async()=>{ await ch.send({embeds:[embed]}); });
@@ -130,10 +119,14 @@ function persistDrafts(){
 
 async function updateMemberCount(guild){ try{ const ch=guild.channels.cache.find(c=>c.name.includes('Member:') && c.type===ChannelType.GuildVoice); if(ch) await ch.setName(`👥・Member: ${guild.memberCount}`).catch(()=>{}); }catch(e){} }
 
-client.once('clientReady',()=>{
-    console.log(`🦁 ${client.user.tag} - AUTO ROLLING - Today ${formatIndo(new Date())}`);
+// FIX 1: Event name yang bener di discord.js v14 adalah ready / ClientReady, bukan clientReady
+client.once(Events.ClientReady,()=>{
+    console.log(`🦁 ${client.user.tag} ONLINE - Today ${formatIndo(new Date())}`);
     if(!fs.existsSync(INV_FILE)) saveInv(loadInv());
     loadDraftsToMap();
+});
+client.once('ready', ()=>{
+    console.log(`[READY-LEGACY] ${client.user.tag} ready`);
 });
 
 client.on('guildMemberAdd',async(m)=>{ try{ await updateMemberCount(m.guild); }catch(e){} });
@@ -148,49 +141,51 @@ client.on('interactionCreate', async (interaction)=>{
             try{
                 await interaction.guild.roles.fetch();
                 const role = interaction.guild.roles.cache.find(r=>r.name===target);
-                if(!role) {
-                    if(interaction.replied || interaction.deferred) return;
-                    return interaction.reply({content:`❌ Role ${target} belum ada!`, flags: MessageFlags.Ephemeral}).catch(()=>{});
-                }
+                if(!role) return interaction.reply({content:`❌ Role ${target} belum ada!`, flags: MessageFlags.Ephemeral}).catch(()=>{});
                 const botMember = await interaction.guild.members.fetch(client.user.id);
                 if(botMember.roles.highest.position <= role.position){
-                    if(interaction.replied || interaction.deferred) return;
-                    return interaction.reply({content:`❌ Role bot gue di bawah ${target}!`, flags: MessageFlags.Ephemeral}).catch(()=>{});
+                    return interaction.reply({content:`❌ Role bot gue di bawah ${target}! Naikin di Server Settings > Roles`, flags: MessageFlags.Ephemeral}).catch(()=>{});
                 }
                 const member = await interaction.guild.members.fetch(interaction.user.id);
                 if(member.roles.cache.has(role.id)){
                     await member.roles.remove(role);
-                    if(interaction.replied || interaction.deferred) return;
                     return interaction.reply({content:`✅ Role ${target} dilepas!`, flags: MessageFlags.Ephemeral}).catch(()=>{});
                 } else {
                     await member.roles.add(role);
-                    if(interaction.replied || interaction.deferred) return;
                     return interaction.reply({content:`✅ Role ${target} diambil!`, flags: MessageFlags.Ephemeral}).catch(()=>{});
                 }
             }catch(e){
-                console.error(e);
-                if(interaction.replied || interaction.deferred) return;
+                console.error('role_ err', e);
                 return interaction.reply({content:`❌ Gagal: ${e.message}`, flags: MessageFlags.Ephemeral}).catch(()=>{});
             }
         }
 
         const guild=interaction.guild;
         if(interaction.customId==='create_ticket'){
-            const modal=new ModalBuilder().setCustomId('invitation_modal').setTitle('📝 Form Undangan Event');
-            const famsInput=new TextInputBuilder().setCustomId('fams').setLabel('Nama Fams Kamu').setStyle(TextInputStyle.Short).setPlaceholder('GARUDA CREW').setRequired(true).setMaxLength(50);
-            const tanggalInput=new TextInputBuilder().setCustomId('tanggal').setLabel('Tanggal (DD-MM-YYYY)').setStyle(TextInputStyle.Short).setPlaceholder('05-09-2026 atau 15-10-2026').setRequired(true).setMaxLength(20);
-            const jamInput=new TextInputBuilder().setCustomId('jam').setLabel('Jam Event').setStyle(TextInputStyle.Short).setPlaceholder('19:00 WIB').setRequired(true).setMaxLength(20);
-            const jenisMapInput=new TextInputBuilder().setCustomId('jenis_map').setLabel('Jenis Event & Map').setStyle(TextInputStyle.Short).setPlaceholder('War - JAVA KOPLO').setRequired(true).setMaxLength(100);
-            const kontakInput=new TextInputBuilder().setCustomId('kontak').setLabel('Kontak & Catatan').setStyle(TextInputStyle.Paragraph).setPlaceholder('Kontak: @username').setRequired(true).setMaxLength(500);
-            modal.addComponents(new ActionRowBuilder().addComponents(famsInput), new ActionRowBuilder().addComponents(tanggalInput), new ActionRowBuilder().addComponents(jamInput), new ActionRowBuilder().addComponents(jenisMapInput), new ActionRowBuilder().addComponents(kontakInput));
-            return await interaction.showModal(modal).catch(()=>{});
+            // FIX 2: showModal harus langsung, jangan di-delay. Ini yang bikin "The application didn't respond"
+            try{
+                const modal=new ModalBuilder().setCustomId('invitation_modal').setTitle('📝 Form Undangan Event');
+                const famsInput=new TextInputBuilder().setCustomId('fams').setLabel('Nama Fams Kamu').setStyle(TextInputStyle.Short).setPlaceholder('GARUDA CREW').setRequired(true).setMaxLength(50);
+                const tanggalInput=new TextInputBuilder().setCustomId('tanggal').setLabel('Tanggal (DD-MM-YYYY)').setStyle(TextInputStyle.Short).setPlaceholder('05-09-2026').setRequired(true).setMaxLength(20);
+                const jamInput=new TextInputBuilder().setCustomId('jam').setLabel('Jam Event').setStyle(TextInputStyle.Short).setPlaceholder('19:00 WIB').setRequired(true).setMaxLength(20);
+                const jenisMapInput=new TextInputBuilder().setCustomId('jenis_map').setLabel('Jenis Event & Map').setStyle(TextInputStyle.Short).setPlaceholder('War - JAVA KOPLO').setRequired(true).setMaxLength(100);
+                const kontakInput=new TextInputBuilder().setCustomId('kontak').setLabel('Kontak & Catatan').setStyle(TextInputStyle.Paragraph).setPlaceholder('Kontak: @username').setRequired(true).setMaxLength(200);
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(famsInput), 
+                    new ActionRowBuilder().addComponents(tanggalInput), 
+                    new ActionRowBuilder().addComponents(jamInput), 
+                    new ActionRowBuilder().addComponents(jenisMapInput), 
+                    new ActionRowBuilder().addComponents(kontakInput)
+                );
+                await interaction.showModal(modal);
+            }catch(e){
+                console.error('create_ticket modal err', e);
+                if(!interaction.replied) await interaction.reply({content:`❌ Gagal buka form: ${e.message}`, flags: MessageFlags.Ephemeral}).catch(()=>{});
+            }
+            return;
         }
         if(interaction.customId.startsWith('send_invitation')){
-            if(interaction.deferred || interaction.replied){
-                // sudah di-ack, jangan defer lagi
-            } else {
-                await interaction.deferUpdate().catch(()=>{});
-            }
+            await interaction.deferUpdate().catch(()=>{});
             const channel=interaction.channel;
             let draft=pendingDrafts.get(channel.id);
             if(!draft){
@@ -207,7 +202,7 @@ client.on('interactionCreate', async (interaction)=>{
                 return await channel.send({content:`<@${draft.creatorId}>`, embeds:[embedFull]}).catch(()=>{});
             }
             draft.status='waiting_admin'; pendingDrafts.set(channel.id,draft); persistDrafts();
-            const waitingEmbed=new EmbedBuilder().setColor(0xFFFF00).setTitle(`⏳ MENUNGGU BALASAN ADMIN - ${draft.fams}`).setDescription(`**Mohon ditunggu, undangan kamu sedang direview ADMIN ke atas!**`).addFields({name:'📅 Tanggal',value:formatIndoFromKey(draft.key),inline:true},{name:'🕐 Jam',value:draft.jam,inline:true},{name:'🎯 Event',value:draft.jenis,inline:true}).setFooter({text:`Menunggu persetujuan...`}).setTimestamp();
+            const waitingEmbed=new EmbedBuilder().setColor(0xFFFF00).setTitle(`⏳ MENUNGGU BALASAN ADMIN - ${draft.fams}`).setDescription(`**Mohon ditunggu, undangan kamu sedang direview ADMIN!**`).addFields({name:'📅 Tanggal',value:formatIndoFromKey(draft.key),inline:true},{name:'🕐 Jam',value:draft.jam,inline:true},{name:'🎯 Event',value:draft.jenis,inline:true}).setFooter({text:`Menunggu persetujuan...`}).setTimestamp();
             await interaction.editReply({embeds:[waitingEmbed],components:[]}).catch(()=>{});
             const adminRoles=guild.roles.cache.filter(r=>['ADMIN','HIGH RANK','CO-OWNER','OWNER'].includes(r.name));
             const adminMention=adminRoles.map(r=>`<@&${r.id}>`).join(' ');
@@ -217,27 +212,14 @@ client.on('interactionCreate', async (interaction)=>{
             return;
         }
         if(interaction.customId.startsWith('accept_invitation_')){
-            // ANTI DOUBLE CLICK - FIX STATUS 1
-            if(interaction.replied || interaction.deferred){
-                return;
-            }
-            try{
-                await interaction.deferReply().catch(()=>{});
-            }catch(e){
-                // already acknowledged, stop
-                return;
-            }
+            if(interaction.replied || interaction.deferred) return;
+            await interaction.deferReply().catch(()=>{ return; });
             const member=interaction.member;
             const isAdmin=member.roles.cache.some(r=>['ADMIN','HIGH RANK','CO-OWNER','OWNER'].includes(r.name)) || member.permissions.has(PermissionFlagsBits.Administrator);
-            if(!isAdmin) {
-                return interaction.editReply({content:'❌ Hanya ADMIN ke atas!'}).catch(()=> interaction.followUp({content:'❌ Hanya ADMIN ke atas!', flags: MessageFlags.Ephemeral}).catch(()=>{}));
-            }
+            if(!isAdmin) return interaction.editReply({content:'❌ Hanya ADMIN ke atas!'}).catch(()=>{});
             const channelId=interaction.customId.replace('accept_invitation_','');
             let draft=pendingDrafts.get(channelId) || pendingDrafts.get(interaction.channel.id);
-            if(!draft){
-                loadDraftsToMap();
-                draft=pendingDrafts.get(channelId) || pendingDrafts.get(interaction.channel.id);
-            }
+            if(!draft){ loadDraftsToMap(); draft=pendingDrafts.get(channelId) || pendingDrafts.get(interaction.channel.id); }
             if(!draft) return interaction.editReply({content:'❌ Draft tidak ditemukan! File draft hilang karena restart. Suruh user buat ulang.'}).catch(()=>{});
             const invData=loadInv();
             const count=(invData[draft.key]||[]).length;
@@ -245,7 +227,7 @@ client.on('interactionCreate', async (interaction)=>{
             if(!invData[draft.key]) invData[draft.key]=[];
             invData[draft.key].push({fams:draft.fams, jam:draft.jam, jenis:draft.jenis, map:draft.map, kontak:draft.kontak, creatorId:draft.creatorId, createdAt:new Date().toISOString()});
             saveInv(invData);
-            const successEmbed=new EmbedBuilder().setColor(0x00FF00).setTitle(`✅ UNDANGAN DITERIMA!`).setDescription(`Undangan **${draft.fams}** pada ${formatIndoFromKey(draft.key)} DITERIMA oleh ${member}!`).addFields({name:'📅 Tanggal',value:formatIndoFromKey(draft.key),inline:true},{name:'🕐 Jam',value:draft.jam,inline:true},{name:'👥 Fams',value:draft.fams,inline:true}).setFooter({text:`Diterima oleh ${member.displayName}`}).setTimestamp();
+            const successEmbed=new EmbedBuilder().setColor(0x00FF00).setTitle(`✅ UNDANGAN DITERIMA!`).setDescription(`Undangan **${draft.fams}** pada ${formatIndoFromKey(draft.key)} DITERIMA oleh ${member}!`).setFooter({text:`Diterima oleh ${member.displayName}`}).setTimestamp();
             await interaction.editReply({content:`<@${draft.creatorId}>`, embeds:[successEmbed]}).catch(()=>{});
             await interaction.channel.send({content:`<@${draft.creatorId}> Undangan kamu DITERIMA dan masuk jadwal!`, embeds:[successEmbed]}).catch(()=>{});
             try{ await updateJadwalChannel(guild); }catch(e){}
@@ -256,10 +238,7 @@ client.on('interactionCreate', async (interaction)=>{
         if(interaction.customId.startsWith('reject_invitation_')){
             const member=interaction.member;
             const isAdmin=member.roles.cache.some(r=>['ADMIN','HIGH RANK','CO-OWNER','OWNER'].includes(r.name)) || member.permissions.has(PermissionFlagsBits.Administrator);
-            if(!isAdmin) {
-                if(interaction.replied || interaction.deferred) return;
-                return interaction.reply({content:'❌ Hanya ADMIN ke atas!', flags: MessageFlags.Ephemeral}).catch(()=>{});
-            }
+            if(!isAdmin) return interaction.reply({content:'❌ Hanya ADMIN ke atas!', flags: MessageFlags.Ephemeral}).catch(()=>{});
             const modal=new ModalBuilder().setCustomId(`reject_modal_${interaction.channel.id}`).setTitle('❌ Tolak Undangan');
             const reasonInput=new TextInputBuilder().setCustomId('reason').setLabel('Alasan menolak').setStyle(TextInputStyle.Paragraph).setPlaceholder('Maaf tanggal tersebut ada war internal').setRequired(true).setMaxLength(500);
             modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
@@ -268,10 +247,8 @@ client.on('interactionCreate', async (interaction)=>{
         if(interaction.customId==='close_ticket'){
             const isAdmin=interaction.member.roles.cache.some(r=>['ADMIN','HIGH RANK','CO-OWNER','OWNER'].includes(r.name)) || interaction.member.permissions.has(PermissionFlagsBits.Administrator);
             if(!isAdmin && !interaction.channel.name.includes(interaction.user.username.toLowerCase())) {
-                if(interaction.replied || interaction.deferred) return;
                 return interaction.reply({content:'❌ Hanya ADMIN atau pembuat ticket!', flags: MessageFlags.Ephemeral}).catch(()=>{});
             }
-            if(interaction.replied || interaction.deferred) return;
             await interaction.reply({content:'🔒 Closing in 5s...'}).catch(()=>{});
             setTimeout(async()=>{ try{ await interaction.channel.delete(); }catch(e){} },5000);
         }
@@ -308,13 +285,13 @@ client.on('interactionCreate', async (interaction)=>{
                 const overwrites=[{id:everyone.id,deny:[PermissionFlagsBits.ViewChannel]},{id:interaction.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.AttachFiles]},{id:client.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ManageChannels]}];
                 adminRoles.forEach(r=> overwrites.push({id:r.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory]}));
                 const ticketChannel=await guild.channels.create({name:`🎫・ticket-${interaction.user.username.toLowerCase()}`, type:ChannelType.GuildText, parent:ticketCat.id, permissionOverwrites:overwrites});
-                const draftData={fams,map,jam,jenis,kontak,catatan:kontak,key,dateObj,creatorId:interaction.user.id,creatorTag:interaction.user.tag,status:'draft', dateStr: dateObj.toISOString()};
+                const draftData={fams,map,jam,jenis,kontak,key,dateObj,creatorId:interaction.user.id,creatorTag:interaction.user.tag,status:'draft', dateStr: dateObj.toISOString()};
                 pendingDrafts.set(ticketChannel.id,draftData); persistDrafts();
-                const draftEmbed=new EmbedBuilder().setColor(0xFFA500).setTitle(`📝 FORMAT UNDANGAN - ${fams}`).setDescription(`**Cek kembali sebelum kirim ke ADMIN!**\n\nHari ini: ${formatIndo(new Date())} - Kamu pilih: ${formatIndo(dateObj)}`).addFields({name:'👥 Fams',value:fams,inline:true},{name:'📅 Tanggal',value:`${formatIndo(dateObj)} (${count}/3 → ${count+1}/3)`,inline:true},{name:'🕐 Jam',value:jam,inline:true},{name:'🎯 Jenis',value:jenis,inline:true},{name:'🗺 Map',value:map,inline:true},{name:'📞 Kontak',value:kontak.substring(0,1000),inline:false}).setFooter({text:`Jika benar, klik Kirim Undangan!`}).setTimestamp();
+                const draftEmbed=new EmbedBuilder().setColor(0xFFA500).setTitle(`📝 FORMAT UNDANGAN - ${fams}`).setDescription(`**Cek kembali sebelum kirim ke ADMIN!**`).addFields({name:'👥 Fams',value:fams,inline:true},{name:'📅 Tanggal',value:`${formatIndo(dateObj)} (${count}/3 → ${count+1}/3)`,inline:true},{name:'🕐 Jam',value:jam,inline:true},{name:'🎯 Jenis',value:jenis,inline:true},{name:'🗺 Map',value:map,inline:true},{name:'📞 Kontak',value:kontak.substring(0,1000),inline:false}).setFooter({text:`Jika benar, klik Kirim Undangan!`}).setTimestamp();
                 const row=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`send_invitation_${ticketChannel.id}`).setLabel('📤 Kirim Undangan ke Admin').setStyle(ButtonStyle.Success), new ButtonBuilder().setCustomId('close_ticket').setLabel('❌ Batal').setStyle(ButtonStyle.Danger));
                 await ticketChannel.send({content:`<@${interaction.user.id}> - Draft:`, embeds:[draftEmbed], components:[row]}).catch(()=>{});
                 await interaction.editReply({content:`✅ Form diterima! Ticket di <#${ticketChannel.id}>`}).catch(()=>{});
-            }catch(e){ console.error(e); await interaction.editReply({content:`❌ Error: ${e.message}`}).catch(()=>{}); }
+            }catch(e){ console.error('modal err', e); await interaction.editReply({content:`❌ Error: ${e.message}`}).catch(()=>{}); }
         }
         if(interaction.customId.startsWith('reject_modal_')){
             await interaction.deferReply().catch(()=>{});
@@ -322,10 +299,7 @@ client.on('interactionCreate', async (interaction)=>{
             const reason=interaction.fields.getTextInputValue('reason');
             const channel=interaction.guild.channels.cache.get(channelId) || interaction.channel;
             let draft=pendingDrafts.get(channelId) || pendingDrafts.get(channel.id);
-            if(!draft){
-                loadDraftsToMap();
-                draft=pendingDrafts.get(channelId) || pendingDrafts.get(channel.id);
-            }
+            if(!draft){ loadDraftsToMap(); draft=pendingDrafts.get(channelId) || pendingDrafts.get(channel.id); }
             if(!draft) return interaction.editReply({content:'❌ Draft tidak ditemukan!'}).catch(()=>{});
             const rejectEmbed=new EmbedBuilder().setColor(0xFF0000).setTitle(`❌ UNDANGAN DITOLAK`).setDescription(`Mohon maaf <@${draft.creatorId}>, invitation anda kami tolak.`).addFields({name:'👥 Fams',value:draft.fams,inline:true},{name:'📅 Tanggal',value:formatIndoFromKey(draft.key),inline:true},{name:'📝 Alasan',value:reason,inline:false}).setFooter({text:`Ditolak oleh ${interaction.member.displayName}`}).setTimestamp();
             await channel.send({content:`<@${draft.creatorId}>`, embeds:[rejectEmbed]}).catch(()=>{});
@@ -334,7 +308,7 @@ client.on('interactionCreate', async (interaction)=>{
         }
     }
   }catch(err){
-    console.error('[Interaction Error]', err.message);
+    console.error('[Interaction Error]', err);
     try{
         if(!interaction.replied && !interaction.deferred){
             await interaction.reply({content:'❌ Terjadi error, coba lagi!', flags: MessageFlags.Ephemeral}).catch(()=>{});
@@ -351,22 +325,16 @@ client.on('messageCreate', async (message)=>{
     const args=message.content.trim().split(/ +/);
     const command=args.shift().toLowerCase();
 
-    if(content==='!roar'){ const embed=new EmbedBuilder().setColor(0xFFA500).setTitle(`🦁 ${CONFIG.FAMS_NAME}`).setDescription(`Family resmi ${CONFIG.MAP_NAME} - Hari ini ${formatIndo(new Date())}`).addFields({name:'👑 Owner',value:CONFIG.OWNER_NAME,inline:true},{name:'👥 Member',value:`${message.guild.memberCount}`,inline:true}).setTimestamp(); return message.reply({embeds:[embed]}); }
+    if(content==='!roar'){ const embed=new EmbedBuilder().setColor(0xFFA500).setTitle(`🦁 ${CONFIG.FAMS_NAME}`).setDescription(`Family resmi ${CONFIG.MAP_NAME}`).setTimestamp(); return message.reply({embeds:[embed]}); }
     if(content==='!menu'){
-        const embed=new EmbedBuilder().setColor(0xFFA500).setTitle(`📜 MENU ROAR BOT`).setDescription(`Hari ini: ${formatIndo(new Date())}`).addFields(
+        const embed=new EmbedBuilder().setColor(0xFFA500).setTitle(`📜 MENU ROAR BOT`).addFields(
             {name:'🎫 Ticket',value:'`!ticket` - Buat undangan\n`!jadwal` - Liat jadwal',inline:true},
-            {name:'🎭 Role',value:'`!takerole` - Ambil role\n`!role member`',inline:true},
-            {name:'👥 Info',value:'`!roar` - Info fams\n`!cek` - Member count',inline:true},
-            {name:'👑 Admin',value:'`Terima/Tolak` di ticket\n`!setup-roar-gate`',inline:true}
+            {name:'🎭 Role',value:'`!takerole` - Ambil role',inline:true},
         ).setTimestamp();
         return message.reply({embeds:[embed]});
     }
-    if(content==='!rank'){ const embed=new EmbedBuilder().setColor(0xFFD700).setTitle(`👑 RANK LIST`).setDescription(`OWNER, CO-OWNER, HIGH RANK, ADMIN, MOD, ELDER, MEMBER, NEWBIE`).setTimestamp(); return message.reply({embeds:[embed]}); }
-    if(['!cek','!members'].includes(content)){ const guild=message.guild; await guild.members.fetch(); return message.reply(`📊 Total: ${guild.memberCount} - Hari ini ${formatIndo(new Date())}`); }
-    if(['!list','!list-member'].includes(content)){ const guild=message.guild; await guild.members.fetch(); const members=guild.members.cache.filter(m=>!m.user.bot); return message.reply(`👥 Total: ${members.size}`); }
-
     if(content==='!takerole'){
-        const embed=new EmbedBuilder().setColor(0x00FF00).setTitle(`🎭 TAKE ROLE - ${CONFIG.FAMS_NAME}`).setDescription(`Klik tombol buat ambil / lepas role!\n\n**NEWBIE** - Member baru\n**MEMBER** - Member tetap\n**ELDER** - Member senior\n\nAtau ketik manual: \`!role newbie\``).setTimestamp();
+        const embed=new EmbedBuilder().setColor(0x00FF00).setTitle(`🎭 TAKE ROLE`).setDescription(`Klik tombol buat ambil / lepas role!`).setTimestamp();
         const row=new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('role_NEWBIE').setLabel('NEWBIE').setStyle(ButtonStyle.Secondary),
             new ButtonBuilder().setCustomId('role_MEMBER').setLabel('MEMBER').setStyle(ButtonStyle.Primary),
@@ -374,125 +342,33 @@ client.on('messageCreate', async (message)=>{
         );
         return message.reply({embeds:[embed], components:[row]});
     }
-
-    if(command==='!role'){
-        const roleName=args.join(' ').toLowerCase();
-        const map={'newbie':'NEWBIE','member':'MEMBER','elder':'ELDER'};
-        const target=map[roleName]||roleName.toUpperCase();
-        if(!['NEWBIE','MEMBER','ELDER'].includes(target)) return message.reply('❌ Cuma NEWBIE, MEMBER, ELDER! Contoh: `!role member`');
-        try{
-            await message.guild.roles.fetch();
-            const role=message.guild.roles.cache.find(r=>r.name===target);
-            if(!role) return message.reply(`❌ Role ${target} belum ada! Jalanin \`!setup-roar-gate\` dulu.`);
-            const botMember=await message.guild.members.fetch(client.user.id);
-            if(botMember.roles.highest.position <= role.position){
-                return message.reply(`❌ Gagal! Role bot gue di bawah ${target}. Naikin posisi role bot di Settings > Roles.`);
-            }
-            const member=await message.guild.members.fetch(message.author.id);
-            if(member.roles.cache.has(role.id)){
-                await member.roles.remove(role);
-                return message.reply(`✅ Role ${target} dilepas!`);
-            } else {
-                await member.roles.add(role);
-                return message.reply(`✅ Role ${target} diambil!`);
-            }
-        }catch(e){
-            console.error('ROLE ERROR:', e);
-            return message.reply(`❌ Gagal: ${e.message}`);
-        }
-    }
-
     if(content==='!ticket' || content==='!tiket'){
         const embed=new EmbedBuilder().setColor(0xFFA500).setTitle(`🎫 TICKET - ${CONFIG.FAMS_NAME}`).setDescription(`**Flow:**\n1. Ambil Ticket → Isi Form\n2. Kirim Undangan\n3. Mohon ditunggu\n4. Admin Terima/Tolak\n5. Diterima=masuk jadwal max 3/hari`).setTimestamp();
         const row=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('create_ticket').setLabel('🎫 Ambil Ticket - Isi Form').setStyle(ButtonStyle.Success));
         return message.reply({embeds:[embed],components:[row]});
     }
-    if(content==='!jadwal' || content==='!jadwal-invitation'){
+    if(content==='!jadwal'){
         const invData=loadInv();
         const today=new Date(); today.setHours(0,0,0,0);
-        let desc=`**📅 AUTO ROLLING 30 HARI - Hari ini: ${formatIndo(today)}**\nMax 3/hari\n\n`;
+        let desc=`**📅 AUTO ROLLING 30 HARI - Hari ini: ${formatIndo(today)}**\n\n`;
         for(let i=0;i<30;i++){
             const date=new Date(today); date.setDate(today.getDate()+i);
             const key=toKey(date);
             const list=invData[key]||[];
             desc+=`**📅 Tgl ${formatIndo(date)} (${list.length}/3)**\n`;
             if(list.length===0) desc+=`-\n-\n-\n`;
-            else { list.forEach((inv,idx)=>{ desc+=`${idx+1}. ${inv.jam} - ${inv.fams}\n`; }); for(let s=list.length; s<3; s++) desc+=`-\n`; }
+            else { list.forEach((inv,idx)=>{ desc+=`${idx+1}. ${inv.jam} - ${inv.fams}\n`; }); }
             desc+=`\n`;
             if(desc.length>3800) break;
         }
         const embed=new EmbedBuilder().setColor(0x00FF00).setTitle(`📅 JADWAL AUTO ROLLING 30 HARI`).setDescription(desc.substring(0,4000)).setTimestamp();
         return message.reply({embeds:[embed]});
     }
-    if(content==='!close'){
-        if(!message.channel.name.includes('ticket-')) return message.reply('❌ Hanya di ticket!');
-        const isAdmin=message.member.roles.cache.some(r=>['ADMIN','HIGH RANK','CO-OWNER','OWNER'].includes(r.name)) || message.member.permissions.has(PermissionFlagsBits.Administrator);
-        if(!isAdmin) return message.reply('❌ Hanya ADMIN ke atas!');
-        await message.reply('🔒 Closing in 5s...');
-        setTimeout(async()=>{ try{ await message.channel.delete(); pendingDrafts.delete(message.channel.id); persistDrafts(); }catch(e){} },5000);
-    }
-    if(content==='!setup-ticket'){
-        if(!message.member.permissions.has(PermissionFlagsBits.Administrator)) return message.reply('❌ Admin only!');
-        try{
-            const guild=message.guild;
-            let ticketCh=guild.channels.cache.find(c=>c.name.includes('ticket') && !c.name.includes('ticket-') && c.type===ChannelType.GuildText);
-            if(!ticketCh){ let cat=guild.channels.cache.find(c=>c.name.includes('TICKET')); if(!cat) cat=await guild.channels.create({name:'🎫 | TICKETS', type:ChannelType.GuildCategory}); ticketCh=await guild.channels.create({name:'🎫・ticket', type:ChannelType.GuildText, parent:cat.id}); }
-            const embed=new EmbedBuilder().setColor(0xFFA500).setTitle(`🎫 TICKET AUTO ROLLING`).setDescription(`Flow Baru AUTO ROLL`).setTimestamp();
-            const row=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('create_ticket').setLabel('🎫 Ambil Ticket').setStyle(ButtonStyle.Success));
-            await ticketCh.send({embeds:[embed],components:[row]});
-            await message.reply(`✅ Ticket setup di <#${ticketCh.id}>`);
-        }catch(e){ message.reply('Gagal: '+e.message); }
-    }
-    if(content==='!setup-roar-gate'){
-        if(!message.member.permissions.has(PermissionFlagsBits.Administrator)) return message.reply('❌ Admin only!');
-        try{
-            const guild=message.guild;
-            const rolesToCreate=['NEWBIE','MEMBER','ELDER','MODERATOR','ADMIN','HIGH RANK','CO-OWNER','OWNER'];
-            for(const rName of rolesToCreate){ if(!guild.roles.cache.find(x=>x.name===rName)) await guild.roles.create({name:rName}); }
-            const everyone=guild.roles.everyone;
-            const categories=[
-                {name:'📕 | RULES', channels:[{name:'📕・rules-discord',type:ChannelType.GuildText,open:true}]},
-                {name:'🎫 | TICKETS', channels:[{name:'🎫・ticket',type:ChannelType.GuildText,open:true},{name:'📅・jadwal-invitation',type:ChannelType.GuildText,open:true},{name:'👥・Member: '+guild.memberCount,type:ChannelType.GuildVoice,open:true}]},
-                {name:'🌍 | GENERAL', channels:[{name:'💬・public-chat',type:ChannelType.GuildText,open:false},{name:'🤖・bot-cmd',type:ChannelType.GuildText,open:false},{name:'🎭・take-role',type:ChannelType.GuildText,open:true}]},
-                {name:'🎮 | GAME - JAVA KOPLO', channels:[{name:'✅・absen-harian',type:ChannelType.GuildText,open:false},{name:'📅・jadwal-event',type:ChannelType.GuildText,open:false}]},
-            ];
-            let ticketCh=null, jadwalCh=null, takeRoleCh=null;
-            for(const cat of categories){
-                let catCh=guild.channels.cache.find(c=>c.name===cat.name && c.type===ChannelType.GuildCategory);
-                if(!catCh) catCh=await guild.channels.create({name:cat.name, type:ChannelType.GuildCategory});
-                for(const ch of cat.channels){
-                    let ex=guild.channels.cache.find(c=>c.name===ch.name && c.parentId===catCh.id) || guild.channels.cache.find(c=>c.name===ch.name);
-                    if(ch.name.includes('Member:')) ex=guild.channels.cache.find(c=>c.name.includes('Member:'));
-                    const overwrites=ch.open?[{id:everyone.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory]}]:[{id:everyone.id,deny:[PermissionFlagsBits.ViewChannel]},...guild.roles.cache.filter(r=>rolesToCreate.includes(r.name)).map(r=>({id:r.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory]}))];
-                    if(!ex){ try{ ex=await guild.channels.create({name:ch.name,type:ch.type,parent:catCh.id,permissionOverwrites:overwrites}); }catch(e){ ex=await guild.channels.create({name:ch.name,type:ch.type,parent:catCh.id}); } }
-                    if(ch.name.includes('ticket') && !ch.name.includes('ticket-')) ticketCh=ex;
-                    if(ch.name.includes('jadwal-invitation')) jadwalCh=ex;
-                    if(ch.name.includes('take-role')) takeRoleCh=ex;
-                }
-            }
-            if(ticketCh){
-                const embed=new EmbedBuilder().setColor(0xFFA500).setTitle(`🎫 TICKET AUTO ROLLING - Hari ini ${formatIndo(new Date())}`).setDescription(`1. Ambil Ticket → Form\n2. Kirim → Mohon ditunggu\n3. Admin Terima/Tolak\n4. Diterima → Masuk jadwal auto rolling`).setTimestamp();
-                const row=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('create_ticket').setLabel('🎫 Ambil Ticket').setStyle(ButtonStyle.Success));
-                await ticketCh.send({embeds:[embed],components:[row]});
-            }
-            if(jadwalCh) await updateJadwalChannel(guild);
-
-            if(takeRoleCh){
-                const embed=new EmbedBuilder().setColor(0x00FF00).setTitle(`🎭 TAKE ROLE - ${CONFIG.FAMS_NAME}`).setDescription(`Klik tombol di bawah buat ambil / lepas role!`).setTimestamp();
-                const row=new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId('role_NEWBIE').setLabel('NEWBIE').setStyle(ButtonStyle.Secondary),
-                    new ButtonBuilder().setCustomId('role_MEMBER').setLabel('MEMBER').setStyle(ButtonStyle.Primary),
-                    new ButtonBuilder().setCustomId('role_ELDER').setLabel('ELDER').setStyle(ButtonStyle.Success)
-                );
-                await takeRoleCh.send({embeds:[embed], components:[row]});
-            }
-
-            await message.channel.send(`✅ Setup selesai! Hari ini ${formatIndo(new Date())}\n#ticket & #jadwal-invitation AUTO ROLLING 30 hari! Ketik !jadwal dan !takerole`);
-        }catch(e){
-            console.error(e);
-            message.channel.send('Gagal: '+e.message);
-        }
-    }
 });
 
-client.login(process.env.DISCORD_TOKEN);
+const token = process.env.DISCORD_TOKEN;
+if(!token){
+    console.error('❌ DISCORD_TOKEN tidak ada di .env! Bot gak akan online.');
+} else {
+    client.login(token).then(()=>console.log('Login attempt...')).catch(e=>console.error('Login failed:', e.message));
+}
