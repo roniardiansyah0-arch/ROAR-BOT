@@ -81,18 +81,8 @@ const STRUCTURE = [
   }
 ];
 
-// === DAFTAR NAMA LAMA YANG HARUS DIHAPUS ===
-const OLD_NAMES_EXACT = [
-  'flavibot-updates', 'public-chat', 'qna-player', 'bot-cmd',
-  'gallery-public', 'gallery-bucin', 'kritik-saran-server',
-  'share-content', 'on-streaming', 'streamer-register',
-  'req-song', 'req-dance-emote', 'report-player', 'scammer-report', 'bug-report',
-  'absen-harian', 'info-war', 'jadwal-event', 'jadwal-invitation',
-  'member-stats', 'cek-member', 'list-member', 'welcome', 'join-leave', 'log-join',
-  'take-role', 'invite-link', 'server-booster', 'ticket',
-  'Ngobrol Santai', 'War Room', 'AFK', 'General', 'PUBLIC SPEAKING 1', 'PUBLIC SPEAKING 2',
-  'Member: 31'
-];
+// === DAFTAR NAMA LAMA FIX ===
+
 
 const commands = [
   new SlashCommandBuilder().setName('setup-roar').setDescription('Setup / rapihkan struktur channel ROAR CREW (Admin only)'),
@@ -149,75 +139,56 @@ async function ensureStructure(guild) {
   console.log('[SETUP] Selesai!');
 }
 
+
 async function cleanOldStructure(guild) {
   let deleted = 0;
   const whitelistNames = STRUCTURE.flatMap(c => c.channels.map(ch => ch.name));
   const whitelistCats = STRUCTURE.map(c => c.name);
-
   console.log('[CLEAN] Mulai bersih-bersih dobel...');
+  const normalize = (s) => s.toLowerCase().replace(/[\s\-_:]+/g, ' ').replace(/・|·/g, ' ').trim();
 
-  // 1. Hapus channel lama yang namanya ada di OLD_NAMES_EXACT
   for (const ch of guild.channels.cache.values()) {
     if (ch.type === ChannelType.GuildCategory) continue;
-    if (OLD_NAMES_EXACT.includes(ch.name) && !whitelistNames.includes(ch.name)) {
-      console.log(`[CLEAN] Hapus channel lama: ${ch.name}`);
-      await ch.delete().catch(() => {});
+    if (ch.name.startsWith('ticket-') || ch.name.includes('ticket-') || ch.name.startsWith('inv-')) continue;
+    if (whitelistNames.includes(ch.name)) continue;
+    const norm = normalize(ch.name);
+    const OLD_BASE = [
+      'absen harian','info war','jadwal event','jadwal invitation',
+      'public chat','qna player','bot cmd','gallery','kritik saran',
+      'share content','on streaming','streamer register','req song','req dance',
+      'report player','scammer report','bug report','flavibot',
+      'member stats','cek member','list member','welcome','join leave','log join',
+      'take role','invite link','server booster',
+      'ngobrol santai','war room','afk','public speaking','general'
+    ];
+    const shouldDelete = OLD_BASE.some(base => norm.includes(base));
+    if (shouldDelete) {
+      console.log('[CLEAN] Hapus channel lama: ' + ch.name);
+      await ch.delete().catch(()=>{});
       deleted++;
     }
   }
 
-  // 2. Hapus kategori lama yang bukan di whitelist (yang pakai | atau nama lama)
   for (const cat of guild.channels.cache.filter(c => c.type === ChannelType.GuildCategory).values()) {
-    if (!whitelistCats.includes(cat.name)) {
-      // hapus dulu child yang sisa di dalamnya yang bukan whitelist
-      const childs = guild.channels.cache.filter(c => c.parentId === cat.id);
-      for (const child of childs.values()) {
-        if (!whitelistNames.includes(child.name)) {
-          console.log(`[CLEAN] Hapus child lama: ${child.name} dari ${cat.name}`);
-          await child.delete().catch(() => {});
-          deleted++;
-        }
-      }
-      // kalau kategori sudah kosong, hapus kategorinya
-      const stillHasChild = guild.channels.cache.some(c => c.parentId === cat.id);
-      if (!stillHasChild) {
-        console.log(`[CLEAN] Hapus kategori lama: ${cat.name}`);
-        await cat.delete().catch(() => {});
+    if (whitelistCats.includes(cat.name)) continue;
+    const childs = guild.channels.cache.filter(c => c.parentId === cat.id);
+    for (const child of childs.values()) {
+      if (!whitelistNames.includes(child.name) && !child.name.includes('ticket-') && !child.name.includes('inv-')) {
+        console.log('[CLEAN] Hapus child di kategori lama ' + cat.name + ': ' + child.name);
+        await child.delete().catch(()=>{});
         deleted++;
       }
     }
-  }
-
-  // 3. Hapus duplikat channel baru (kalau ada 2 channel dengan nama sama persis)
-  const nameCount = {};
-  for (const ch of guild.channels.cache.filter(c => c.type !== ChannelType.GuildCategory).values()) {
-    if (!whitelistNames.includes(ch.name)) continue;
-    nameCount[ch.name] = (nameCount[ch.name] || 0) + 1;
-  }
-  for (const [name, count] of Object.entries(nameCount)) {
-    if (count > 1) {
-      const dups = guild.channels.cache.filter(c => c.name === name).toJSON();
-      // simpan 1, hapus sisanya
-      for (let i = 1; i < dups.length; i++) {
-        console.log(`[CLEAN] Hapus duplikat: ${name}`);
-        await dups[i].delete().catch(() => {});
-        deleted++;
-      }
+    const stillHasChild = guild.channels.cache.some(c => c.parentId === cat.id);
+    if (!stillHasChild) {
+      console.log('[CLEAN] Hapus kategori lama: ' + cat.name);
+      await cat.delete().catch(()=>{});
+      deleted++;
     }
   }
-
   return deleted;
 }
 
-async function updateMemberStats(guild) {
-  const memberCount = guild.memberCount;
-  const statsVoice = guild.channels.cache.find(c => c.name.startsWith('👥・Member:'));
-  if (statsVoice && statsVoice.type === ChannelType.GuildVoice) {
-    if (statsVoice.name !== `👥・Member: ${memberCount}`) {
-      await statsVoice.setName(`👥・Member: ${memberCount}`).catch(() => {});
-    }
-  }
-}
 
 async function sendTicketEmbed(guild) {
   const ticketChannel = guild.channels.cache.find(c => c.name === '🎫・ticket');
