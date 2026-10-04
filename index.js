@@ -384,9 +384,20 @@ const commands = [
 
 async function registerCommands() {
   const rest = new REST({ version: '10' }).setToken(token);
-  console.log('[SLASH] Registering BARTER SYSTEM...');
-  await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-  console.log('[SLASH] Registered BARTER!');
+  console.log('[SLASH] Registering BARTER SYSTEM (Global + Guild)...');
+  try {
+    // Global (buat semua server, butuh 1 jam)
+    await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
+    console.log('[SLASH] Registered GLOBAL BARTER!');
+  } catch(e){ console.log('global fail', e.message); }
+  
+  // Guild instant (langsung bisa dipake detik itu juga)
+  try {
+    for (const guild of client.guilds.cache.values()) {
+      await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: commands });
+      console.log(`[SLASH] Registered GUILD instant di ${guild.name}`);
+    }
+  } catch(e){ console.log('guild fail', e.message); }
 }
 
 async function ensureStructure(guild) {
