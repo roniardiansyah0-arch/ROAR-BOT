@@ -256,6 +256,7 @@ const commands = [
   new SlashCommandBuilder().setName('board-refresh').setDescription('Refresh board jadwal invitation (Admin)'),
   new SlashCommandBuilder().setName('history-clan').setDescription('Lihat history clan yang pernah undang')
     .addStringOption(o=>o.setName('clan').setDescription('Nama clan').setRequired(false)),
+  new SlashCommandBuilder().setName('help').setDescription('Lihat semua command ROAR BOT - panduan admin & member'),
 ].map(c => c.toJSON());
 
 async function registerCommands() {
@@ -390,6 +391,47 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await interaction.guild.members.fetch();
         const embed = new EmbedBuilder().setTitle('📊 MEMBER STATS').setDescription(`Total: **${interaction.guild.memberCount}**`).setColor(0x3498DB);
         return interaction.editReply({ embeds: [embed] });
+      }
+      if (interaction.commandName === 'help') {
+        const embed = new EmbedBuilder()
+          .setTitle('🦁 ROAR CREW - LIST COMMAND LENGKAP')
+          .setDescription('**Panduan untuk Admin & Member - Barter System**')
+          .setColor(0xFF9900)
+          .addFields(
+            { name: '🔧 ADMIN SETUP (Hanya Admin)', value: 
+              '`/setup-roar` - Bikin 6 kategori bersih + board + ticket (sekali pakai pas awal)\n' +
+              '`/tiket-setup` - Kirim ulang embed ticket di #ticket\n' +
+              '`/board-refresh` - Refresh board harian di #jadwal-invitation\n', inline: false },
+            { name: '📅 INVITATION & BARTER SYSTEM (Admin)', value:
+              '`/history-clan` - Lihat semua history clan yang pernah undang ROAR\n' +
+              '`/history-clan clan:CDM` - Filter history clan tertentu (contoh CDM)\n' +
+              '**Button di #ticket:**\n' +
+              '• 📨 Lapor Diundang Clan Lain → Form: Judul, Tgl/Jam, Clan Pengundang\n' +
+              '• 🚨 Report / Bantuan → Bikin ticket report private\n' +
+              '**Button di ticket private:**\n' +
+              '• ✅ Approve & Post ke Board → Auto post ke #jadwal-invitation + #logs + update board\n' +
+              '• ❌ Tolak → Tolak & hapus ticket\n', inline: false },
+            { name: '👥 MEMBER COMMAND (Semua Member)', value:
+              '`/absen` - Absen harian, auto post ke #absen-harian\n' +
+              '`/list-member` - Lihat total member & stats\n' +
+              '`/help` - List command ini\n', inline: false },
+            { name: '📊 ALUR BARTER YANG BENAR', value:
+              '1. Member dapat undangan clan lain\n' +
+              '2. Ke #ticket → Klik Lapor Diundang → Isi: Tanggal, Clan Pengundang\n' +
+              '3. Ticket private kebikin (inv-username)\n' +
+              '4. Admin klik Approve → Auto:\n' +
+              '   → Post detail di #jadwal-invitation + @everyone\n' +
+              '   → Masuk board harian (format 0/3)\n' +
+              '   → History masuk #logs buat tracking barter\n' +
+              '   → Ticket auto hapus 5 detik\n' +
+              '5. Cek #logs buat undang balik clan yang support\n', inline: false },
+            { name: '📝 CONTOH BOARD', value:
+              '```\n📅 Tgl 04 Oktober 2026 (0/3)\n-\n-\n-\n\n📅 Tgl 06 Oktober 2026 (2/3)\n20:00 WIB - LUNOVE VEXNIGHT\n21:00 WIB - BLACKCOURT CLUB\n-\n```\n`0/3` = slot kosong / max 3 per hari', inline: false },
+            { name: '❓ BUTUH BANTUAN?', value: 'Semua log barter ada di #logs • Board ada di #jadwal-invitation (di-pin)', inline: false },
+          )
+          .setFooter({ text: 'ROAR CREW • Barter System • ROAR BOT' })
+          .setTimestamp();
+        return interaction.reply({ embeds: [embed], ephemeral: false });
       }
     }
 
