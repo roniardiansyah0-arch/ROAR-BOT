@@ -18,6 +18,8 @@ const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 const INV_FILE = path.join(DATA_DIR, 'invitations.json');
 const BOARD_FILE = path.join(DATA_DIR, 'board_message.json');
+const EVENT_FILE = path.join(DATA_DIR, 'events_out.json');
+const EVENT_BOARD_FILE = path.join(DATA_DIR, 'event_board_message.json');
 
 function loadInvitations() {
   try {
@@ -29,6 +31,16 @@ function loadInvitations() {
 function saveInvitations(list) {
   try { fs.writeFileSync(INV_FILE, JSON.stringify(list, null, 2)); } catch(e){ console.error('save fail', e); }
 }
+function loadEventsOut() {
+  try {
+    if (!fs.existsSync(EVENT_FILE)) return [];
+    const data = JSON.parse(fs.readFileSync(EVENT_FILE, 'utf8'));
+    return Array.isArray(data) ? data : [];
+  } catch { return []; }
+}
+function saveEventsOut(list) {
+  try { fs.writeFileSync(EVENT_FILE, JSON.stringify(list, null, 2)); } catch(e){ console.error('save event fail', e); }
+}
 function loadBoardInfo() {
   try {
     if (!fs.existsSync(BOARD_FILE)) return null;
@@ -37,6 +49,15 @@ function loadBoardInfo() {
 }
 function saveBoardInfo(info) {
   try { fs.writeFileSync(BOARD_FILE, JSON.stringify(info, null, 2)); } catch {}
+}
+function loadEventBoardInfo() {
+  try {
+    if (!fs.existsSync(EVENT_BOARD_FILE)) return null;
+    return JSON.parse(fs.readFileSync(EVENT_BOARD_FILE, 'utf8'));
+  } catch { return null; }
+}
+function saveEventBoardInfo(info) {
+  try { fs.writeFileSync(EVENT_BOARD_FILE, JSON.stringify(info, null, 2)); } catch {}
 }
 
 // ===== DATE HELPER =====
@@ -193,7 +214,7 @@ async function logToLogsChannel(guild, data) {
         { name: '👤 Dilapor oleh (Discord)', value: `${data.reporterTag} (<@${data.reporterId}>)\nUsername: ${data.reporterUsername}`, inline: true },
         { name: '✅ Di-approve oleh', value: `${data.approvedByTag}`, inline: true },
         { name: '📝 Link/Catatan', value: data.catatan || '-', inline: false },
-        { name: '🔄 Status Barter', value: `❌ Belum undang balik\n*Gunakan data ini untuk tracking support*`, inline: false },
+        { name: '🔄 Status Barter', value: `❌ Belum undang balik\n*Gunakan /undang-balik untuk undang balik clan ini*`, inline: false },
       )
       .setColor(0xFFD700)
       .setFooter({ text: `ID: ${data.id} • Barter System • ${new Date().toLocaleDateString('id-ID')}` })
@@ -204,6 +225,100 @@ async function logToLogsChannel(guild, data) {
   } catch(e) {
     console.error('[LOGS ERROR]', e);
   }
+}
+
+async function updateEventBoard(guild) {
+  try {
+    const events = loadEventsOut();
+    const eventCh = guild.channels.cache.find(c => c.name === '📅・jadwal-event');
+    if (!eventCh) return;
+    const grouped = {};
+    events.forEach(ev => {
+      if (!grouped[ev.dateKey]) grouped[ev.dateKey] = [];
+      grouped[ev.dateKey].push(ev);
+    });
+    let days = getNextDays(7);
+    const extraKeys = Object.keys(grouped).filter(k => !days.some(d=>d.dateKey===k)).sort();
+    extraKeys.forEach(k => {
+      const sample = grouped[k][0];
+      days.push({ dateKey: k, dateDisplay: sample.dateDisplay, dateObj: new Date(sample.year, sample.monthIdx, sample.day) });
+    });
+    days.sort((a,b)=> a.dateObj - b.dateObj);
+
+    let desc = `**⚔️ JADWAL EVENT - ROAR CREW UNDANG BALIK**\n*Event keluar - ROAR undang clan lain (barter)*\n\n`;
+    for (const day of days) {
+      const list = grouped[day.dateKey] || [];
+      list.sort((a,b)=> a.jam.localeCompare(b.jam));
+      const count = list.length;
+      const max = 3;
+      desc += `**📅 Tgl ${day.dateDisplay} (${count}/${max})**\n`;
+      if (count===0) {
+        desc += `-\n-\n-\n\n`;
+      } else {
+        for (let i=0; i<max; i++) {
+          if (i < list.length) {
+            const ev = list[i];
+            desc += `${ev.jam} - ${ev.clan} (${ev.judul}) - by ${ev.createdByUsername}\n`;
+          } else {
+            desc += `-\n`;
+          }
+        }
+        desc += `\n`;
+      }
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle('⚔️ JADWAL EVENT - BOARD')
+      .setDescription(desc)
+      .setColor(0xFF4500)
+      .setFooter({ text: `Last update: ${new Date().toLocaleString('id-ID')} • Total event keluar: ${events.length}` })
+      .setTimestamp();
+
+    const boardInfo = loadEventBoardInfo();
+    if (boardInfo && boardInfo.guildId===guild.id && boardInfo.channelId===eventCh.id && boardInfo.messageId) {
+      try {
+        const msg = await eventCh.messages.fetch(boardInfo.messageId);
+        await msg.edit({ embeds: [embed] });
+        console.log('[EVENT BOARD] Updated');
+        return;
+      } catch(e) {}
+    }
+    try {
+      const msgs = await eventCh.messages.fetch({ limit: 20 });
+      const existing = msgs.find(m => m.author.id===client.user.id && m.embeds[0]?.title?.includes('JADWAL EVENT - BOARD'));
+      if (existing) {
+        await existing.edit({ embeds: [embed] });
+        saveEventBoardInfo({ guildId: guild.id, channelId: eventCh.id, messageId: existing.id });
+        return;
+      }
+    } catch {}
+    const newMsg = await eventCh.send({ embeds: [embed] });
+    try { await newMsg.pin().catch(()=>{}); } catch {}
+    saveEventBoardInfo({ guildId: guild.id, channelId: eventCh.id, messageId: newMsg.id });
+  } catch(e){ console.error('[EVENT BOARD ERROR]', e); }
+}
+
+async function logUndangBalik(guild, data) {
+  try {
+    const logsCh = guild.channels.cache.find(c => c.name === '📝・logs');
+    if (!logsCh) return;
+    const embed = new EmbedBuilder()
+      .setTitle('🔄 UNDANG BALIK - BARTER SELESAI')
+      .setDescription(`**ROAR CREW undang balik ${data.clan}**\nBarter support selesai ✅`)
+      .addFields(
+        { name: '🎯 Clan Diundang Balik', value: `**${data.clan}**`, inline: true },
+        { name: '📅 Tanggal Event', value: data.tanggalRaw, inline: true },
+        { name: '⏰ Jam', value: data.jam, inline: true },
+        { name: '📝 Judul Event', value: data.judul, inline: false },
+        { name: '👤 Diundang oleh', value: `<@${data.createdById}> (${data.createdByTag})`, inline: true },
+        { name: '📝 Catatan', value: data.catatan || '-', inline: false },
+        { name: '✅ Status Barter', value: `✅ Sudah undang balik ke ${data.clan}\nClan support terbalas!`, inline: false },
+      )
+      .setColor(0x00FF7F)
+      .setFooter({ text: `Barter Completed • ${new Date().toLocaleDateString('id-ID')}` })
+      .setTimestamp();
+    await logsCh.send({ embeds: [embed] });
+  } catch(e){ console.error('[LOG BALIK ERROR]', e); }
 }
 
 const client = new Client({
@@ -258,6 +373,12 @@ const commands = [
     .addStringOption(o=>o.setName('clan').setDescription('Nama clan').setRequired(false)),
   new SlashCommandBuilder().setName('help').setDescription('Lihat semua command ROAR BOT - panduan admin & member'),
   new SlashCommandBuilder().setName('roar-help').setDescription('📖 Panduan lengkap command ROAR CREW (Anti bentrok)'),
+  new SlashCommandBuilder().setName('undang-balik').setDescription('Undang balik clan - masuk ke jadwal-event (barter selesai)')
+    .addStringOption(o=>o.setName('clan').setDescription('Nama clan yang mau diundang balik').setRequired(true))
+    .addStringOption(o=>o.setName('tanggal').setDescription('Tanggal: 06 Oktober 2026').setRequired(true))
+    .addStringOption(o=>o.setName('jam').setDescription('Jam: 20:00 WIB').setRequired(true))
+    .addStringOption(o=>o.setName('judul').setDescription('Judul event war').setRequired(true))
+    .addStringOption(o=>o.setName('catatan').setDescription('Catatan/link grup').setRequired(false)),
 ].map(c => c.toJSON());
 
 async function registerCommands() {
@@ -318,12 +439,13 @@ async function sendTicketEmbed(guild) {
 }
 
 client.once(Events.ClientReady, async () => {
-  console.log(`🦁 ${client.user.tag} BARTER SYSTEM ONLINE!`);
+  console.log(`🦁 ${client.user.tag} BARTER SYSTEM + UNDANG BALIK ONLINE!`);
   await registerCommands();
   // Auto refresh board on startup
   for (const guild of client.guilds.cache.values()) {
     await guild.channels.fetch();
     await updateInvitationBoard(guild).catch(()=>{});
+    await updateEventBoard(guild).catch(()=>{});
   }
 });
 
@@ -353,7 +475,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) return interaction.reply({ content: '❌ Hanya admin!', ephemeral: true });
         await interaction.deferReply({ ephemeral: true });
         await updateInvitationBoard(interaction.guild);
-        return interaction.editReply('✅ Board jadwal invitation di-refresh!');
+        await updateEventBoard(interaction.guild);
+        return interaction.editReply('✅ Board invitation & event di-refresh! (2 board)');
       }
       if (interaction.commandName === 'history-clan') {
         await interaction.deferReply({ ephemeral: true });
@@ -396,44 +519,99 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (interaction.commandName === 'help' || interaction.commandName === 'roar-help') {
         const embed = new EmbedBuilder()
           .setTitle('🦁 ROAR CREW - LIST COMMAND LENGKAP')
-          .setDescription('**Panduan untuk Admin & Member - Barter System**')
+          .setDescription('**Panduan untuk Admin & Member - Barter System + Undang Balik**')
           .setColor(0xFF9900)
           .addFields(
             { name: '🔧 ADMIN SETUP (Hanya Admin)', value: 
               '`/setup-roar` - Bikin 6 kategori bersih + board + ticket (sekali pakai pas awal)\n' +
               '`/tiket-setup` - Kirim ulang embed ticket di #ticket\n' +
-              '`/board-refresh` - Refresh board harian di #jadwal-invitation\n', inline: false },
-            { name: '📅 INVITATION & BARTER SYSTEM (Admin)', value:
+              '`/board-refresh` - Refresh board invitation & event\n', inline: false },
+            { name: '📅 INVITATION MASUK (Clan lain undang ROAR)', value:
               '`/history-clan` - Lihat semua history clan yang pernah undang ROAR\n' +
-              '`/history-clan clan:CDM` - Filter history clan tertentu (contoh CDM)\n' +
-              '**Button di #ticket:**\n' +
-              '• 📨 Lapor Diundang Clan Lain → Form: Judul, Tgl/Jam, Clan Pengundang\n' +
-              '• 🚨 Report / Bantuan → Bikin ticket report private\n' +
-              '**Button di ticket private:**\n' +
-              '• ✅ Approve & Post ke Board → Auto post ke #jadwal-invitation + #logs + update board\n' +
-              '• ❌ Tolak → Tolak & hapus ticket\n', inline: false },
-            { name: '👥 MEMBER COMMAND (Semua Member)', value:
-              '`/absen` - Absen harian, auto post ke #absen-harian\n' +
-              '`/list-member` - Lihat total member & stats\n' +
-              '`/roar-help` - List command ini (anti bentrok)\n' +
-              '`/help` - Sama kayak roar-help\n', inline: false },
-            { name: '📊 ALUR BARTER YANG BENAR', value:
-              '1. Member dapat undangan clan lain\n' +
-              '2. Ke #ticket → Klik Lapor Diundang → Isi: Tanggal, Clan Pengundang\n' +
-              '3. Ticket private kebikin (inv-username)\n' +
-              '4. Admin klik Approve → Auto:\n' +
-              '   → Post detail di #jadwal-invitation + @everyone\n' +
-              '   → Masuk board harian (format 0/3)\n' +
-              '   → History masuk #logs buat tracking barter\n' +
-              '   → Ticket auto hapus 5 detik\n' +
-              '5. Cek #logs buat undang balik clan yang support\n', inline: false },
-            { name: '📝 CONTOH BOARD', value:
-              '```\n📅 Tgl 04 Oktober 2026 (0/3)\n-\n-\n-\n\n📅 Tgl 06 Oktober 2026 (2/3)\n20:00 WIB - LUNOVE VEXNIGHT\n21:00 WIB - BLACKCOURT CLUB\n-\n```\n`0/3` = slot kosong / max 3 per hari', inline: false },
-            { name: '❓ BUTUH BANTUAN?', value: 'Semua log barter ada di #logs • Board ada di #jadwal-invitation (di-pin)', inline: false },
+              '`/history-clan clan:CDM` - Filter history clan tertentu\n' +
+              '**Flow:** #ticket → Lapor Diundang → Approve → Masuk #jadwal-invitation + board + #logs\n', inline: false },
+            { name: '⚔️ UNDANG BALIK KELUAR (ROAR undang clan lain) - BARU!', value:
+              '`/undang-balik clan:CDM tanggal:07 Oktober 2026 jam:20:00 WIB judul:War Balasan` - Undang balik clan\n' +
+              '→ Auto post ke #jadwal-event + board event + #logs (barter selesai ✅)\n' +
+              'Contoh lengkap:\n' +
+              '`/undang-balik clan:CDM tanggal:07 Oktober 2026 jam:20:00 WIB judul:War Persahabatan catatan:Link grup WA`\n', inline: false },
+            { name: '👥 MEMBER COMMAND', value:
+              '`/absen` - Absen harian\n' +
+              '`/list-member` - Stats\n' +
+              '`/roar-help` - Panduan ini\n', inline: false },
+            { name: '📊 ALUR BARTER', value:
+              '1. Clan CDM undang ROAR → #ticket → Approve → #jadwal-invitation + #logs (❌ Belum undang balik)\n' +
+              '2. ROAR undang balik CDM → /undang-balik → #jadwal-event + #logs (✅ Barter selesai)\n' +
+              '3. Cek #logs buat tau clan mana yang sudah/belum dibalas\n', inline: false },
           )
           .setFooter({ text: 'ROAR CREW • Barter System • ROAR BOT' })
           .setTimestamp();
         return interaction.reply({ embeds: [embed], ephemeral: false });
+      }
+      if (interaction.commandName === 'undang-balik') {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) return interaction.reply({ content: '❌ Hanya Moderator/Admin bisa undang balik!', ephemeral: true });
+        await interaction.deferReply({ ephemeral: true });
+        const clan = interaction.options.getString('clan');
+        const tanggal = interaction.options.getString('tanggal');
+        const jam = interaction.options.getString('jam');
+        const judul = interaction.options.getString('judul');
+        const catatan = interaction.options.getString('catatan') || '-';
+        
+        const tanggalGabung = `${tanggal} ${jam}`;
+        const parsed = parseTanggalInput(tanggalGabung);
+        
+        const eventCh = interaction.guild.channels.cache.find(c => c.name === '📅・jadwal-event');
+        if (!eventCh) return interaction.editReply('❌ Channel 📅・jadwal-event tidak ada!');
+        
+        // Save
+        const events = loadEventsOut();
+        const newEvent = {
+          id: Date.now().toString(),
+          clan,
+          tanggalRaw: tanggalGabung,
+          dateKey: parsed.dateKey,
+          dateDisplay: parsed.dateDisplay,
+          day: parsed.day,
+          monthIdx: parsed.monthIdx,
+          year: parsed.year,
+          jam: parsed.jam,
+          judul,
+          catatan,
+          createdById: interaction.user.id,
+          createdByTag: interaction.user.tag,
+          createdByUsername: interaction.user.username,
+          timestamp: Date.now(),
+          type: 'undang-balik'
+        };
+        events.push(newEvent);
+        saveEventsOut(events);
+        
+        // Post ke jadwal-event
+        const embed = new EmbedBuilder()
+          .setTitle(`⚔️ ROAR UNDANG BALIK: ${judul}`)
+          .addFields(
+            { name: '🎯 Clan Diundang', value: `**${clan}**`, inline: true },
+            { name: '📅 Tanggal', value: tanggal, inline: true },
+            { name: '⏰ Jam', value: jam, inline: true },
+            { name: '📝 Judul Event', value: judul, inline: false },
+            { name: '📝 Catatan/Link', value: catatan, inline: false },
+            { name: '👤 Diundang oleh', value: `${interaction.user}`, inline: true },
+            { name: '🔄 Barter', value: `✅ Undang balik ke ${clan} - balasan untuk invitation mereka`, inline: false },
+          )
+          .setColor(0xFF4500)
+          .setFooter({ text: `Barter System • Undang balik • ${parsed.dateDisplay}` })
+          .setTimestamp();
+        
+        await eventCh.send({ content: `@everyone ⚔️ **ROAR CREW UNDANG BALIK ${clan.toUpperCase()}**`, embeds: [embed] });
+        
+        // Log ke logs
+        await logUndangBalik(interaction.guild, newEvent);
+        
+        // Update event board
+        await updateEventBoard(interaction.guild);
+        await updateInvitationBoard(interaction.guild); // refresh juga
+        
+        return interaction.editReply(`✅ **Berhasil undang balik ${clan}!**\n→ Di-post ke ${eventCh}\n→ Board event di-update\n→ Logs barter selesai ✅`);
       }
     }
 
