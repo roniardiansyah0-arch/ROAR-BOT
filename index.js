@@ -2,14 +2,12 @@ const { Client, GatewayIntentBits, Events, Partials, ChannelType, PermissionsBit
 require('dotenv').config();
 const http = require('http');
 
-// ====== WEB SERVER (Buat Render / Uptime) ======
 const PORT = process.env.PORT || 10000;
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('ROAR CREW BOT - ONLINE - ' + new Date().toISOString());
 }).listen(PORT, () => console.log(`[WEB] Listening on ${PORT}`));
 
-// ====== TOKEN CHECK ======
 const token = (process.env.DISCORD_TOKEN || '').trim();
 if (!token) {
   console.error('[FATAL] DISCORD_TOKEN tidak ada di .env');
@@ -17,7 +15,6 @@ if (!token) {
 }
 console.log('[CHECK] TOKEN exists:', !!token, '| length:', token.length);
 
-// ====== CLIENT ======
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -29,7 +26,6 @@ const client = new Client({
   partials: [Partials.Channel, Partials.Message, Partials.GuildMember]
 });
 
-// ====== CONFIG STRUKTUR SIMPLE FINAL ======
 const STRUCTURE = [
   {
     name: '│ START HERE',
@@ -56,14 +52,14 @@ const STRUCTURE = [
       { name: '✅・absen-harian', type: ChannelType.GuildText },
       { name: '⚔️・info-war', type: ChannelType.GuildText },
       { name: '📅・jadwal-event', type: ChannelType.GuildText },
-      { name: '📨・jadwal-invitation', type: ChannelType.GuildText }, // WAJIB 2 - TETAP PISAH
+      { name: '📨・jadwal-invitation', type: ChannelType.GuildText },
     ]
   },
   {
     name: '│ MEMBER STATS',
     channels: [
       { name: '📊・member-stats', type: ChannelType.GuildText },
-      { name: '👥・Member: 0', type: ChannelType.GuildVoice }, // auto update
+      { name: '👥・Member: 0', type: ChannelType.GuildVoice },
     ]
   },
   {
@@ -85,9 +81,22 @@ const STRUCTURE = [
   }
 ];
 
-// ====== SLASH COMMANDS ======
+// === DAFTAR NAMA LAMA YANG HARUS DIHAPUS ===
+const OLD_NAMES_EXACT = [
+  'flavibot-updates', 'public-chat', 'qna-player', 'bot-cmd',
+  'gallery-public', 'gallery-bucin', 'kritik-saran-server',
+  'share-content', 'on-streaming', 'streamer-register',
+  'req-song', 'req-dance-emote', 'report-player', 'scammer-report', 'bug-report',
+  'absen-harian', 'info-war', 'jadwal-event', 'jadwal-invitation',
+  'member-stats', 'cek-member', 'list-member', 'welcome', 'join-leave', 'log-join',
+  'take-role', 'invite-link', 'server-booster', 'ticket',
+  'Ngobrol Santai', 'War Room', 'AFK', 'General', 'PUBLIC SPEAKING 1', 'PUBLIC SPEAKING 2',
+  'Member: 31'
+];
+
 const commands = [
   new SlashCommandBuilder().setName('setup-roar').setDescription('Setup / rapihkan struktur channel ROAR CREW (Admin only)'),
+  new SlashCommandBuilder().setName('clean-old').setDescription('HAPUS semua channel & kategori lama yang dobel (Admin only) - FIX DOBEL'),
   new SlashCommandBuilder().setName('absen').setDescription('Absen harian'),
   new SlashCommandBuilder().setName('list-member').setDescription('Lihat list member & stats'),
   new SlashCommandBuilder().setName('jadwal-event').setDescription('Post jadwal event baru')
@@ -113,7 +122,6 @@ async function registerCommands() {
   }
 }
 
-// ====== HELPER: ENSURE STRUCTURE ======
 async function ensureStructure(guild) {
   console.log(`[SETUP] Memulai setup untuk ${guild.name}`);
   for (const catData of STRUCTURE) {
@@ -125,22 +133,11 @@ async function ensureStructure(guild) {
     for (const chData of catData.channels) {
       let existing = guild.channels.cache.find(c => c.name === chData.name && c.parentId === category.id);
       if (existing) continue;
-      // cek juga tanpa parent (kalau channel lama berantakan)
-      const byNameOnly = guild.channels.cache.find(c => c.name === chData.name);
-      if (byNameOnly && chData.name.includes('Member:')) {
-        // untuk member counter jangan buat duplikat
-        continue;
-      }
-
       const perms = [];
       if (chData.privateAdmin) {
-        perms.push({
-          id: guild.roles.everyone.id,
-          deny: [PermissionsBitField.Flags.ViewChannel]
-        });
+        perms.push({ id: guild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] });
       }
-
-      const newCh = await guild.channels.create({
+      await guild.channels.create({
         name: chData.name,
         type: chData.type,
         parent: category.id,
@@ -152,7 +149,66 @@ async function ensureStructure(guild) {
   console.log('[SETUP] Selesai!');
 }
 
-// ====== MEMBER STATS UPDATER ======
+async function cleanOldStructure(guild) {
+  let deleted = 0;
+  const whitelistNames = STRUCTURE.flatMap(c => c.channels.map(ch => ch.name));
+  const whitelistCats = STRUCTURE.map(c => c.name);
+
+  console.log('[CLEAN] Mulai bersih-bersih dobel...');
+
+  // 1. Hapus channel lama yang namanya ada di OLD_NAMES_EXACT
+  for (const ch of guild.channels.cache.values()) {
+    if (ch.type === ChannelType.GuildCategory) continue;
+    if (OLD_NAMES_EXACT.includes(ch.name) && !whitelistNames.includes(ch.name)) {
+      console.log(`[CLEAN] Hapus channel lama: ${ch.name}`);
+      await ch.delete().catch(() => {});
+      deleted++;
+    }
+  }
+
+  // 2. Hapus kategori lama yang bukan di whitelist (yang pakai | atau nama lama)
+  for (const cat of guild.channels.cache.filter(c => c.type === ChannelType.GuildCategory).values()) {
+    if (!whitelistCats.includes(cat.name)) {
+      // hapus dulu child yang sisa di dalamnya yang bukan whitelist
+      const childs = guild.channels.cache.filter(c => c.parentId === cat.id);
+      for (const child of childs.values()) {
+        if (!whitelistNames.includes(child.name)) {
+          console.log(`[CLEAN] Hapus child lama: ${child.name} dari ${cat.name}`);
+          await child.delete().catch(() => {});
+          deleted++;
+        }
+      }
+      // kalau kategori sudah kosong, hapus kategorinya
+      const stillHasChild = guild.channels.cache.some(c => c.parentId === cat.id);
+      if (!stillHasChild) {
+        console.log(`[CLEAN] Hapus kategori lama: ${cat.name}`);
+        await cat.delete().catch(() => {});
+        deleted++;
+      }
+    }
+  }
+
+  // 3. Hapus duplikat channel baru (kalau ada 2 channel dengan nama sama persis)
+  const nameCount = {};
+  for (const ch of guild.channels.cache.filter(c => c.type !== ChannelType.GuildCategory).values()) {
+    if (!whitelistNames.includes(ch.name)) continue;
+    nameCount[ch.name] = (nameCount[ch.name] || 0) + 1;
+  }
+  for (const [name, count] of Object.entries(nameCount)) {
+    if (count > 1) {
+      const dups = guild.channels.cache.filter(c => c.name === name).toJSON();
+      // simpan 1, hapus sisanya
+      for (let i = 1; i < dups.length; i++) {
+        console.log(`[CLEAN] Hapus duplikat: ${name}`);
+        await dups[i].delete().catch(() => {});
+        deleted++;
+      }
+    }
+  }
+
+  return deleted;
+}
+
 async function updateMemberStats(guild) {
   const memberCount = guild.memberCount;
   const statsVoice = guild.channels.cache.find(c => c.name.startsWith('👥・Member:'));
@@ -161,49 +217,37 @@ async function updateMemberStats(guild) {
       await statsVoice.setName(`👥・Member: ${memberCount}`).catch(() => {});
     }
   }
-  const statsText = guild.channels.cache.find(c => c.name === '📊・member-stats');
-  if (statsText) {
-    // optional: bisa kirim/update stats embed, untuk sekarang log saja
-  }
 }
 
-// ====== TIKET EMBED ======
 async function sendTicketEmbed(guild) {
   const ticketChannel = guild.channels.cache.find(c => c.name === '🎫・ticket');
   if (!ticketChannel) return;
-
   const embed = new EmbedBuilder()
     .setTitle('🎫 ROAR CREW - TICKET SYSTEM')
     .setDescription(
       '**Butuh bantuan atau mau request invitation?**\n\n' +
-      '🔹 **Request Invitation War** → Buat jadwal invitation baru (akan nyambung ke `#📨・jadwal-invitation` setelah di-approve admin)\n' +
+      '🔹 **Request Invitation War** → Akan nyambung ke `#📨・jadwal-invitation` setelah di-approve admin\n' +
       '🔹 **Report / Bantuan** → Lapor scammer, bug, atau player\n\n' +
       'Klik tombol di bawah, isi form, ticket private akan dibuat otomatis.'
     )
     .setColor(0xFF9900)
     .setFooter({ text: 'ROAR CREW • Ticket nyambung ke Invitation' });
-
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('create_ticket_invitation').setLabel('📨 Request Invitation').setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId('create_ticket_report').setLabel('🚨 Report / Bantuan').setStyle(ButtonStyle.Secondary),
   );
-
-  // hapus pesan bot lama biar ga spam
   const messages = await ticketChannel.messages.fetch({ limit: 10 }).catch(() => null);
   if (messages) {
     const botMsgs = messages.filter(m => m.author.id === client.user.id);
     for (const m of botMsgs.values()) await m.delete().catch(() => {});
   }
-
   await ticketChannel.send({ embeds: [embed], components: [row] });
   console.log('[TICKET] Embed ticket terkirim');
 }
 
-// ====== EVENTS ======
 client.once(Events.ClientReady, async () => {
   console.log(`🦁 ${client.user.tag} ONLINE - SUCCESS!`);
   await registerCommands();
-  // update stats untuk semua guild
   for (const guild of client.guilds.cache.values()) {
     updateMemberStats(guild);
   }
@@ -219,10 +263,8 @@ client.on(Events.GuildMemberRemove, (member) => {
   updateMemberStats(member.guild);
 });
 
-// ====== INTERACTION HANDLER ======
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
-    // --- SLASH COMMANDS ---
     if (interaction.isChatInputCommand()) {
       const { commandName } = interaction;
 
@@ -233,7 +275,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await interaction.deferReply({ ephemeral: true });
         await ensureStructure(interaction.guild);
         await sendTicketEmbed(interaction.guild);
-        return interaction.editReply('✅ Struktur ROAR CREW berhasil dirapihkan! Cek kategori baru.');
+        return interaction.editReply('✅ Struktur ROAR CREW berhasil dirapihkan! Cek kategori baru. Kalau dobel, pakai /clean-old');
+      }
+
+      if (commandName === 'clean-old') {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+          return interaction.reply({ content: '❌ Hanya admin!', ephemeral: true });
+        }
+        await interaction.deferReply({ ephemeral: true });
+        const deleted = await cleanOldStructure(interaction.guild);
+        return interaction.editReply(`🧹 Beres! ${deleted} channel & kategori lama yang dobel sudah dihapus. Sekarang udah bersih simple.`);
       }
 
       if (commandName === 'tiket-setup') {
@@ -247,13 +298,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (commandName === 'absen') {
         const absenCh = interaction.guild.channels.cache.find(c => c.name === '✅・absen-harian');
         if (!absenCh) return interaction.reply({ content: 'Channel absen tidak ditemukan, jalankan /setup-roar', ephemeral: true });
-
         const embed = new EmbedBuilder()
           .setTitle('✅ Absen Harian')
           .setDescription(`${interaction.user} telah absen pada <t:${Math.floor(Date.now() / 1000)}:F>`)
           .setColor(0x00FF00)
           .setThumbnail(interaction.user.displayAvatarURL());
-
         await absenCh.send({ embeds: [embed] });
         return interaction.reply({ content: `✅ Absen berhasil dicatat di ${absenCh}`, ephemeral: true });
       }
@@ -266,13 +315,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const bots = guild.members.cache.filter(m => m.user.bot).size;
         const humans = total - bots;
         const online = guild.members.cache.filter(m => m.presence?.status && m.presence.status !== 'offline').size;
-
         const embed = new EmbedBuilder()
           .setTitle('📊 MEMBER STATS - ROAR CREW')
           .setDescription(`Total: **${total}** | Member: **${humans}** | Bot: **${bots}** | Online: **${online}**`)
           .setColor(0x3498DB)
           .addFields(
-            { name: '👑 Owner/Admin', value: guild.members.cache.filter(m => m.permissions.has(PermissionsBitField.Flags.Administrator)).map(m => m.user.tag).slice(0, 10).join('\n') || '-', inline: true },
+            { name: '👑 Admin', value: guild.members.cache.filter(m => m.permissions.has(PermissionsBitField.Flags.Administrator)).map(m => m.user.tag).slice(0, 10).join('\n') || '-', inline: true },
             { name: '📅 Dibuat', value: `<t:${Math.floor(guild.createdTimestamp / 1000)}:R>`, inline: true }
           );
         return interaction.editReply({ embeds: [embed] });
@@ -284,7 +332,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const judul = interaction.options.getString('judul');
         const tanggal = interaction.options.getString('tanggal');
         const deskripsi = interaction.options.getString('deskripsi') || '-';
-
         const embed = new EmbedBuilder()
           .setTitle(`📅 ${judul}`)
           .addFields(
@@ -304,7 +351,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
         const ch = interaction.guild.channels.cache.find(c => c.name === '📨・jadwal-invitation');
         if (!ch) return interaction.reply({ content: 'Channel jadwal-invitation tidak ada', ephemeral: true });
-
         const embed = new EmbedBuilder()
           .setTitle(`📨 INVITATION: ${interaction.options.getString('judul')}`)
           .addFields(
@@ -315,29 +361,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
           )
           .setColor(0xE74C3C)
           .setTimestamp();
-
         await ch.send({ content: '@everyone', embeds: [embed] });
         return interaction.reply({ content: `✅ Invitation dipost di ${ch}`, ephemeral: true });
       }
     }
 
-    // --- BUTTONS ---
     if (interaction.isButton()) {
-      // BUAT TICKET
       if (interaction.customId === 'create_ticket_invitation' || interaction.customId === 'create_ticket_report') {
         const isInvitation = interaction.customId === 'create_ticket_invitation';
-
-        // MODAL untuk invitation
         if (isInvitation) {
-          const modal = new ModalBuilder()
-            .setCustomId('modal_invitation')
-            .setTitle('Request Jadwal Invitation');
-
+          const modal = new ModalBuilder().setCustomId('modal_invitation').setTitle('Request Jadwal Invitation');
           const judulInput = new TextInputBuilder().setCustomId('judul').setLabel('Judul Invitation / War').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('Ex: War vs ROAR ELITE');
           const tanggalInput = new TextInputBuilder().setCustomId('tanggal').setLabel('Tanggal & Jam').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('Ex: 12 Okt 2025 21:00 WIB');
           const targetInput = new TextInputBuilder().setCustomId('target').setLabel('Target Clan / Lawan').setStyle(TextInputStyle.Short).setRequired(true);
           const catatanInput = new TextInputBuilder().setCustomId('catatan').setLabel('Catatan / Strategi').setStyle(TextInputStyle.Paragraph).setRequired(false);
-
           modal.addComponents(
             new ActionRowBuilder().addComponents(judulInput),
             new ActionRowBuilder().addComponents(tanggalInput),
@@ -346,11 +383,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
           );
           return interaction.showModal(modal);
         } else {
-          // Report ticket langsung buat channel
           await interaction.deferReply({ ephemeral: true });
           const guild = interaction.guild;
           const category = guild.channels.cache.find(c => c.name === '│ SUPPORT' && c.type === ChannelType.GuildCategory);
-
           const channel = await guild.channels.create({
             name: `🎫・ticket-${interaction.user.username}`.toLowerCase().replace(/[^a-z0-9-]/g, '-').substring(0, 30),
             type: ChannelType.GuildText,
@@ -361,60 +396,41 @@ client.on(Events.InteractionCreate, async (interaction) => {
               { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ManageChannels] },
             ]
           });
-
-          const embed = new EmbedBuilder()
-            .setTitle('🚨 Ticket Report / Bantuan')
-            .setDescription(`Halo ${interaction.user}, jelaskan masalah kamu di channel ini. Admin akan segera merespon.`)
-            .setColor(0x95A5A6);
-
-          const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('close_ticket').setLabel('🔒 Close Ticket').setStyle(ButtonStyle.Danger)
-          );
-
-          await channel.send({ content: `${interaction.user} <@&${guild.roles.cache.find(r => r.permissions.has(PermissionsBitField.Flags.Administrator))?.id || ''}>`, embeds: [embed], components: [row] });
+          const embed = new EmbedBuilder().setTitle('🚨 Ticket Report / Bantuan').setDescription(`Halo ${interaction.user}, jelaskan masalah kamu di channel ini. Admin akan segera merespon.`).setColor(0x95A5A6);
+          const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('close_ticket').setLabel('🔒 Close Ticket').setStyle(ButtonStyle.Danger));
+          await channel.send({ content: `${interaction.user}`, embeds: [embed], components: [row] });
           return interaction.editReply({ content: `✅ Ticket dibuat: ${channel}` });
         }
       }
-
       if (interaction.customId === 'approve_invitation') {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
           return interaction.reply({ content: '❌ Hanya admin bisa approve', ephemeral: true });
         }
-        // Ambil data dari embed di channel ini
         const messages = await interaction.channel.messages.fetch({ limit: 20 });
         const botEmbedMsg = messages.find(m => m.embeds.length > 0 && m.embeds[0].title?.includes('Request Invitation'));
         if (!botEmbedMsg) return interaction.reply({ content: 'Data invitation tidak ditemukan', ephemeral: true });
-
         const embedData = botEmbedMsg.embeds[0];
         const invitationCh = interaction.guild.channels.cache.find(c => c.name === '📨・jadwal-invitation');
         if (!invitationCh) return interaction.reply({ content: 'Channel jadwal-invitation tidak ada', ephemeral: true });
-
-        // Forward ke jadwal-invitation
         const forwardEmbed = EmbedBuilder.from(embedData).setColor(0xE74C3C).setFooter({ text: `Approved by ${interaction.user.tag}` });
         await invitationCh.send({ content: '@everyone 📨 **INVITATION BARU DI-APPROVE**', embeds: [forwardEmbed] });
-
         await interaction.reply({ content: `✅ Di-approve & dipost ke ${invitationCh}!` });
-        // auto close setelah 5 detik
         setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
       }
-
       if (interaction.customId === 'close_ticket') {
         await interaction.reply({ content: '🔒 Ticket akan ditutup dalam 3 detik...' });
         setTimeout(() => interaction.channel.delete().catch(() => {}), 3000);
       }
     }
 
-    // --- MODAL SUBMIT ---
     if (interaction.isModalSubmit() && interaction.customId === 'modal_invitation') {
       await interaction.deferReply({ ephemeral: true });
       const guild = interaction.guild;
       const category = guild.channels.cache.find(c => c.name === '│ SUPPORT' && c.type === ChannelType.GuildCategory);
-
       const judul = interaction.fields.getTextInputValue('judul');
       const tanggal = interaction.fields.getTextInputValue('tanggal');
       const target = interaction.fields.getTextInputValue('target');
       const catatan = interaction.fields.getTextInputValue('catatan') || '-';
-
       const channel = await guild.channels.create({
         name: `📨・inv-${interaction.user.username}`.toLowerCase().replace(/[^a-z0-9-]/g, '-').substring(0, 30),
         type: ChannelType.GuildText,
@@ -425,7 +441,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
           { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ManageChannels] },
         ]
       });
-
       const embed = new EmbedBuilder()
         .setTitle(`📨 Request Invitation: ${judul}`)
         .addFields(
@@ -436,12 +451,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         )
         .setColor(0x3498DB)
         .setTimestamp();
-
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('approve_invitation').setLabel('✅ Approve & Post ke Jadwal').setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId('close_ticket').setLabel('❌ Tolak / Close').setStyle(ButtonStyle.Danger),
       );
-
       await channel.send({ content: `Ticket Invitation dari ${interaction.user} - Admin silahkan review`, embeds: [embed], components: [row] });
       return interaction.editReply({ content: `✅ Request kamu dibuat di ${channel}. Tunggu admin approve, nanti otomatis masuk ke #📨・jadwal-invitation` });
     }
@@ -454,7 +467,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
-// ====== LOGIN ======
 async function testToken() {
   try {
     const res = await fetch('https://discord.com/api/v10/users/@me', { headers: { Authorization: `Bot ${token}` } });
@@ -472,6 +484,5 @@ testToken().then(() => {
     .catch(e => console.error('[LOGIN] Failed:', e.message));
 });
 
-// Anti-crash
 process.on('unhandledRejection', e => console.error('[UNHANDLED]', e));
 process.on('uncaughtException', e => console.error('[UNCAUGHT]', e));
