@@ -432,8 +432,14 @@ client.on(Events.InteractionCreate, async (interaction)=>{
       const guild=interaction.guild; const category=guild.channels.cache.find(c=>c.name==='│ SUPPORT' && c.type===ChannelType.GuildCategory);
       let judul=interaction.fields.getTextInputValue('judul').trim(); const tanggal=interaction.fields.getTextInputValue('tanggal').trim(); const target=interaction.fields.getTextInputValue('target').trim(); const catatan=interaction.fields.getTextInputValue('catatan').trim()||'-';
       if(!judul) judul='INVITATION';
-      // Hapus ticket lama biar ga numpuk
-      try{ const existing=guild.channels.cache.filter(c=>c.name.startsWith(`inv-${interaction.user.username.toLowerCase().replace(/[^a-z0-9-]/g,'-').substring(0,20)}) && c.parentId===category?.id); for(const [id,ch] of existing){ if(ch.id!==interaction.channel?.id){ await ch.delete().catch(()=>{}); await new Promise(r=>setTimeout(r,300)); } } }catch{}
+      // Hapus ticket lama biar ga numpuk - FIX SYNTAX
+      try{ 
+        const prefix=`inv-${interaction.user.username.toLowerCase().replace(/[^a-z0-9-]/g,'-').substring(0,20)}`;
+        const existing=guild.channels.cache.filter(c=>c.name.startsWith(prefix) && c.parentId===category?.id); 
+        for(const [id,ch] of existing){ 
+          if(ch.id!==interaction.channel?.id){ await ch.delete().catch(()=>{}); await new Promise(r=>setTimeout(r,300)); } 
+        } 
+      }catch{}
       const channel=await guild.channels.create({name:`inv-${interaction.user.username}`.toLowerCase().replace(/[^a-z0-9-]/g,'-').substring(0,30),type:ChannelType.GuildText,parent:category?.id,permissionOverwrites:[{id:guild.roles.everyone.id,deny:[PermissionsBitField.Flags.ViewChannel]},{id:interaction.user.id,allow:[PermissionsBitField.Flags.ViewChannel,PermissionsBitField.Flags.SendMessages]},{id:client.user.id,allow:[PermissionsBitField.Flags.ViewChannel,PermissionsBitField.Flags.SendMessages,PermissionsBitField.Flags.ManageChannels]}]});
       const parsed=parseTanggalInput(tanggal);
       const embed=new EmbedBuilder().setTitle(`📨 Diundang: ${judul}`).addFields({name:'📆 Tanggal Invitation',value:tanggal,inline:true},{name:'📩 Diundang Oleh (Clan Pengundang)',value:target,inline:true},{name:'⏰ Jam Parsed',value:parsed.jam,inline:true},{name:'📝 Link / Catatan',value:catatan.substring(0,1000)},{name:'👤 Dilapor oleh',value:`${interaction.user}`}).setColor(0x3498DB).setTimestamp().setFooter({text:`Akan masuk board: ${parsed.dateDisplay} • Judul bebas - ${judul}`});
