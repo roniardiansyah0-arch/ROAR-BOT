@@ -723,20 +723,22 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isButton() && interaction.customId === 'approve_invitation') {
       const invitationCh = interaction.guild.channels.cache.find(c => c.name === '📨・jadwal-invitation');
       const logsCh = interaction.guild.channels.cache.find(c => c.name === '📝・logs');
-      if (!invitationCh) return interaction.reply({ content: '❌ Channel invitation tidak ada!', ephemeral: true });
+      if (!invitationCh) return interaction.reply({ content: '❌ Channel invitation tidak ada! Jalankan /setup-roar', ephemeral: true });
       await interaction.deferReply({ ephemeral: true });
 
       const messages = await interaction.channel.messages.fetch({ limit: 20 });
       const botEmbedMsg = messages.find(m => m.embeds.length > 0 && (m.embeds[0].title?.includes('Diundang') || m.embeds[0].title?.includes('INVITATION') || m.embeds[0].title?.includes('Request')));
-      if (!botEmbedMsg) return interaction.editReply({ content: 'Data tidak ditemukan - embed hilang' });
+      if (!botEmbedMsg) return interaction.editReply({ content: '❌ Data tidak ditemukan - embed hilang, coba buat ticket baru' });
       
       const emb = botEmbedMsg.embeds[0];
-      const judul = emb.title.replace('📨 Diundang:','').trim() || 'INVITATION';
-      const tanggalRaw = emb.fields.find(f=>f.name.includes('Tanggal'))?.value || '05 Oktober 2026';
+      let judul = emb.title.replace('📨 Diundang:','').trim() || 'INVITATION';
+      // Judul bebas - boleh INVITATION, War, Fun Match, apapun - jangan di-auto-fix
+      if (!judul || judul.length < 1) judul = 'INVITATION';
+      const tanggalRaw = emb.fields.find(f=>f.name.includes('Tanggal'))?.value || '06 Oktober 2026 20:00 WIB';
       const clan = emb.fields.find(f=>f.name.includes('Diundang'))?.value || 'UNKNOWN';
       const catatan = emb.fields.find(f=>f.name.includes('Link')||f.name.includes('Catatan'))?.value || '-';
       const reporterMention = emb.fields.find(f=>f.name.includes('Dilapor'))?.value || '';
-      // Extract reporter ID from mention
+      // Extract reporter ID
       const reporterIdMatch = reporterMention.match(/<@!?(\d+)>/);
       const reporterId = reporterIdMatch ? reporterIdMatch[1] : interaction.user.id;
       let reporterUser = null;
@@ -770,17 +772,31 @@ client.on(Events.InteractionCreate, async (interaction) => {
       invitations.push(newInv);
       saveInvitations(invitations);
 
-      // Post to invitation channel (detail)
-      const forwardEmbed = EmbedBuilder.from(emb).setColor(0xE74C3C).setFooter({ text: `Approved by ${interaction.user.tag} • Clan: ${clan} • Masuk board & logs` });
-      await invitationCh.send({ content: `@everyone 📨 **INVITATION DARI ${clan.toUpperCase()} - DI-APPROVE**`, embeds: [forwardEmbed] });
+      // Post ke invitation channel dengan embed BARU yang cakep (bukan forward embed lama)
+      const prettyEmbed = new EmbedBuilder()
+        .setTitle(`📨 INVITATION: ${judul}`)
+        .addFields(
+          { name: '🎯 Clan Pengundang', value: `**${clan}**`, inline: true },
+          { name: '📅 Tanggal', value: parsed.dateDisplay, inline: true },
+          { name: '⏰ Jam', value: parsed.jam, inline: true },
+          { name: '📝 Judul', value: judul, inline: false },
+          { name: '📝 Link/Catatan', value: catatan.substring(0,1000), inline: false },
+          { name: '👤 Dilapor oleh', value: `<@${reporterId}> (${reporterUsername})`, inline: true },
+          { name: '✅ Approved by', value: `${interaction.user.tag}`, inline: true },
+        )
+        .setColor(0x00FF00)
+        .setFooter({ text: `Barter System • ${clan} • ${parsed.dateDisplay}` })
+        .setTimestamp();
 
-      // Log to logs channel for barter tracking
+      await invitationCh.send({ content: `@everyone 📨 **INVITATION DARI ${clan.toUpperCase()} - ${judul}**`, embeds: [prettyEmbed] });
+
+      // Log ke logs channel
       await logToLogsChannel(interaction.guild, newInv);
 
       // Update board
       await updateInvitationBoard(interaction.guild);
 
-      await interaction.editReply({ content: `✅ Di-post ke ${invitationCh} + ${logsCh} + board di-update! Channel ini kehapus 5 detik.` });
+      await interaction.editReply({ content: `✅ **${judul}** dari **${clan}** di-post ke ${invitationCh} + ${logsCh} + board update! Channel hapus 5 detik.` });
       setTimeout(()=>interaction.channel.delete().catch(()=>{}), 5000);
     }
 
@@ -793,10 +809,31 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await interaction.deferReply({ ephemeral: true });
       const guild = interaction.guild;
       const category = guild.channels.cache.find(c => c.name === '│ SUPPORT' && c.type === ChannelType.GuildCategory);
-      const judul = interaction.fields.getTextInputValue('judul');
-      const tanggal = interaction.fields.getTextInputValue('tanggal');
-      const target = interaction.fields.getTextInputValue('target');
-      const catatan = interaction.fields.getTextInputValue('catatan')||'-';
+      let judul = interaction.fields.getTextInputValue('judul').trim();
+      const tanggal = interaction.fields.getTextInputValue('tanggal').trim();
+      const target = interaction.fields.getTextInputValue('target').trim();
+      const catatan = interaction.fields.getTextInputValue('catatan').trim()||'-';
+      
+      // Judul bebas - tipe undangan apa aja boleh (INVITATION, War, Fun Match, dll)
+      // Cuma kalau kosong aja baru dikasih default
+      if (!judul || judul.length < 1) {
+        judul = `INVITATION`; // default bebas
+      }
+      
+      // Hapus ticket lama user yang sama biar ga numpuk (fix GINI TERUS)
+      try {
+        const existingTickets = guild.channels.cache.filter(c => 
+          c.name.startsWith(`inv-${interaction.user.username.toLowerCase().replace(/[^a-z0-9-]/g,'-').substring(0,20)}`) &&
+          c.parentId === category?.id
+        );
+        for (const [id, ch] of existingTickets) {
+          if (ch.id !== interaction.channel?.id) {
+            await ch.delete().catch(()=>{});
+            await new Promise(r=>setTimeout(r, 300));
+          }
+        }
+      } catch(e){ console.log('cleanup old tickets error', e.message); }
+      
       const channel = await guild.channels.create({
         name: `inv-${interaction.user.username}`.toLowerCase().replace(/[^a-z0-9-]/g,'-').substring(0,30),
         type: ChannelType.GuildText, parent: category?.id,
@@ -811,7 +848,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         { name: '📆 Tanggal Invitation', value: tanggal, inline: true },
         { name: '📩 Diundang Oleh (Clan Pengundang)', value: target, inline: true },
         { name: '⏰ Jam Parsed', value: parsed.jam, inline: true },
-        { name: '📝 Link / Catatan', value: catatan },
+        { name: '📝 Link / Catatan', value: catatan.substring(0,1000) },
         { name: '👤 Dilapor oleh', value: `${interaction.user}` }
       ).setColor(0x3498DB).setTimestamp().setFooter({ text: `Akan masuk board: ${parsed.dateDisplay} • Barter tracking` });
       const row = new ActionRowBuilder().addComponents(
@@ -819,7 +856,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         new ButtonBuilder().setCustomId('close_ticket').setLabel('❌ Tolak').setStyle(ButtonStyle.Danger),
       );
       await channel.send({ embeds: [embed], components: [row] });
-      return interaction.editReply({ content: `✅ Request di ${channel} - nanti masuk board harian & logs` });
+      return interaction.editReply({ content: `✅ Request di ${channel} - Judul: **${judul}** - nanti masuk board harian & logs` });
     }
   } catch (err) {
     console.error('[ERROR]', err);
