@@ -257,6 +257,7 @@ const commands = [
   new SlashCommandBuilder().setName('history-clan').setDescription('Lihat history clan yang pernah undang')
     .addStringOption(o=>o.setName('clan').setDescription('Nama clan').setRequired(false)),
   new SlashCommandBuilder().setName('help').setDescription('Lihat semua command ROAR BOT - panduan admin & member'),
+  new SlashCommandBuilder().setName('roar-help').setDescription('📖 Panduan lengkap command ROAR CREW (Anti bentrok)'),
 ].map(c => c.toJSON());
 
 async function registerCommands() {
@@ -392,7 +393,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const embed = new EmbedBuilder().setTitle('📊 MEMBER STATS').setDescription(`Total: **${interaction.guild.memberCount}**`).setColor(0x3498DB);
         return interaction.editReply({ embeds: [embed] });
       }
-      if (interaction.commandName === 'help') {
+      if (interaction.commandName === 'help' || interaction.commandName === 'roar-help') {
         const embed = new EmbedBuilder()
           .setTitle('🦁 ROAR CREW - LIST COMMAND LENGKAP')
           .setDescription('**Panduan untuk Admin & Member - Barter System**')
@@ -414,7 +415,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
             { name: '👥 MEMBER COMMAND (Semua Member)', value:
               '`/absen` - Absen harian, auto post ke #absen-harian\n' +
               '`/list-member` - Lihat total member & stats\n' +
-              '`/help` - List command ini\n', inline: false },
+              '`/roar-help` - List command ini (anti bentrok)\n' +
+              '`/help` - Sama kayak roar-help\n', inline: false },
             { name: '📊 ALUR BARTER YANG BENAR', value:
               '1. Member dapat undangan clan lain\n' +
               '2. Ke #ticket → Klik Lapor Diundang → Isi: Tanggal, Clan Pengundang\n' +
