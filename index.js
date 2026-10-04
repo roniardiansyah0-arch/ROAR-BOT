@@ -384,20 +384,37 @@ const commands = [
 
 async function registerCommands() {
   const rest = new REST({ version: '10' }).setToken(token);
-  console.log('[SLASH] Registering BARTER SYSTEM (Global + Guild)...');
+  console.log('[SLASH] Registering BARTER SYSTEM - STABLE VERSION...');
+  // 1. Global - biar permanen
   try {
-    // Global (buat semua server, butuh 1 jam)
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-    console.log('[SLASH] Registered GLOBAL BARTER!');
-  } catch(e){ console.log('global fail', e.message); }
+    console.log('[SLASH] Registered GLOBAL - akan muncul max 1 jam');
+  } catch(e){ console.log('global fail', e.message, e.code); }
   
-  // Guild instant (langsung bisa dipake detik itu juga)
+  // 2. Guild instant - langsung muncul
   try {
-    for (const guild of client.guilds.cache.values()) {
-      await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: commands });
-      console.log(`[SLASH] Registered GUILD instant di ${guild.name}`);
+    const guilds = await client.guilds.fetch();
+    console.log(`[SLASH] Found ${guilds.size} guilds, registering instant...`);
+    for (const [guildId, guild] of guilds) {
+      try {
+        await rest.put(Routes.applicationGuildCommands(client.user.id, guildId), { body: commands });
+        console.log(`[SLASH] ✅ Guild instant OK di ${guild.name || guildId} (${guildId})`);
+      } catch(err) {
+        console.log(`[SLASH] Guild ${guildId} fail:`, err.message);
+      }
+      await new Promise(r=>setTimeout(r, 500)); // delay biar ga rate limit
     }
-  } catch(e){ console.log('guild fail', e.message); }
+  } catch(e){ 
+    console.log('guild fetch fail', e.message);
+    // Fallback cache
+    try {
+      for (const [guildId, guild] of client.guilds.cache) {
+        await rest.put(Routes.applicationGuildCommands(client.user.id, guildId), { body: commands });
+        console.log(`[SLASH] ✅ Guild instant fallback OK di ${guild.name} (${guildId})`);
+      }
+    } catch(e2){ console.log('fallback fail', e2.message); }
+  }
+  console.log('[SLASH] DONE - Restart Discord (Ctrl+R) dan coba /roar-help');
 }
 
 async function ensureStructure(guild) {
@@ -732,83 +749,114 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.isButton() && interaction.customId === 'approve_invitation') {
-      const invitationCh = interaction.guild.channels.cache.find(c => c.name === '📨・jadwal-invitation');
-      const logsCh = interaction.guild.channels.cache.find(c => c.name === '📝・logs');
-      if (!invitationCh) return interaction.reply({ content: '❌ Channel invitation tidak ada! Jalankan /setup-roar', ephemeral: true });
-      await interaction.deferReply({ ephemeral: true });
+      // Anti fail - biar ga GINI TERUS 10x
+      try {
+        await interaction.deferReply({ ephemeral: true });
+      } catch(e) {
+        try { await interaction.reply({ content: '⏳ Processing approve...', ephemeral: true }); } catch {}
+      }
 
-      const messages = await interaction.channel.messages.fetch({ limit: 20 });
-      const botEmbedMsg = messages.find(m => m.embeds.length > 0 && (m.embeds[0].title?.includes('Diundang') || m.embeds[0].title?.includes('INVITATION') || m.embeds[0].title?.includes('Request')));
-      if (!botEmbedMsg) return interaction.editReply({ content: '❌ Data tidak ditemukan - embed hilang, coba buat ticket baru' });
-      
-      const emb = botEmbedMsg.embeds[0];
-      let judul = emb.title.replace('📨 Diundang:','').trim() || 'INVITATION';
-      // Judul bebas - boleh INVITATION, War, Fun Match, apapun - jangan di-auto-fix
-      if (!judul || judul.length < 1) judul = 'INVITATION';
-      const tanggalRaw = emb.fields.find(f=>f.name.includes('Tanggal'))?.value || '06 Oktober 2026 20:00 WIB';
-      const clan = emb.fields.find(f=>f.name.includes('Diundang'))?.value || 'UNKNOWN';
-      const catatan = emb.fields.find(f=>f.name.includes('Link')||f.name.includes('Catatan'))?.value || '-';
-      const reporterMention = emb.fields.find(f=>f.name.includes('Dilapor'))?.value || '';
-      // Extract reporter ID
-      const reporterIdMatch = reporterMention.match(/<@!?(\d+)>/);
-      const reporterId = reporterIdMatch ? reporterIdMatch[1] : interaction.user.id;
-      let reporterUser = null;
-      try { reporterUser = await interaction.guild.members.fetch(reporterId); } catch {}
-      const reporterTag = reporterUser ? reporterUser.user.tag : 'Unknown';
-      const reporterUsername = reporterUser ? reporterUser.user.username : reporterMention.replace(/<@!?\d+>/g,'').trim() || 'Unknown';
+      try {
+        const guild = interaction.guild;
+        await guild.channels.fetch().catch(()=>{});
+        
+        const invitationCh = guild.channels.cache.find(c => c.name === '📨・jadwal-invitation');
+        if (!invitationCh) {
+          return interaction.editReply({ content: '❌ Channel 📨・jadwal-invitation tidak ada! Jalankan /setup-roar dulu' }).catch(()=>{});
+        }
 
-      const parsed = parseTanggalInput(tanggalRaw);
-      
-      // Save to JSON
-      const invitations = loadInvitations();
-      const newInv = {
-        id: Date.now().toString(),
-        judul,
-        tanggalRaw,
-        dateKey: parsed.dateKey,
-        dateDisplay: parsed.dateDisplay,
-        day: parsed.day,
-        monthIdx: parsed.monthIdx,
-        year: parsed.year,
-        jam: parsed.jam,
-        clan,
-        catatan,
-        reporterId,
-        reporterTag,
-        reporterUsername,
-        approvedByTag: interaction.user.tag,
-        approvedById: interaction.user.id,
-        timestamp: Date.now()
-      };
-      invitations.push(newInv);
-      saveInvitations(invitations);
+        const messages = await interaction.channel.messages.fetch({ limit: 20 }).catch(()=>null);
+        if (!messages) return interaction.editReply('❌ Gagal fetch messages').catch(()=>{});
+        
+        const botEmbedMsg = messages.find(m => m.embeds.length > 0 && (m.embeds[0].title?.includes('Diundang') || m.embeds[0].title?.includes('INVITATION')));
+        if (!botEmbedMsg) return interaction.editReply({ content: '❌ Embed hilang, buat ticket baru' }).catch(()=>{});
+        
+        const emb = botEmbedMsg.embeds[0];
+        let judul = emb.title.replace('📨 Diundang:','').trim() || 'INVITATION';
+        if (!judul || judul.length < 1) judul = 'INVITATION';
+        const tanggalRaw = emb.fields.find(f=>f.name.includes('Tanggal'))?.value || '06 Oktober 2026 20:00 WIB';
+        const clan = emb.fields.find(f=>f.name.includes('Diundang'))?.value || 'UNKNOWN';
+        const catatan = emb.fields.find(f=>f.name.includes('Link')||f.name.includes('Catatan'))?.value || '-';
+        const reporterMention = emb.fields.find(f=>f.name.includes('Dilapor'))?.value || '';
+        const reporterIdMatch = reporterMention.match(/<@!?(\d+)>/);
+        const reporterId = reporterIdMatch ? reporterIdMatch[1] : interaction.user.id;
+        let reporterUser = null;
+        try { reporterUser = await guild.members.fetch(reporterId); } catch {}
+        const reporterTag = reporterUser ? reporterUser.user.tag : 'Unknown';
+        const reporterUsername = reporterUser ? reporterUser.user.username : 'Unknown';
 
-      // Post ke invitation channel dengan embed BARU yang cakep (bukan forward embed lama)
-      const prettyEmbed = new EmbedBuilder()
-        .setTitle(`📨 INVITATION: ${judul}`)
-        .addFields(
-          { name: '🎯 Clan Pengundang', value: `**${clan}**`, inline: true },
-          { name: '📅 Tanggal', value: parsed.dateDisplay, inline: true },
-          { name: '⏰ Jam', value: parsed.jam, inline: true },
-          { name: '📝 Judul', value: judul, inline: false },
-          { name: '📝 Link/Catatan', value: catatan.substring(0,1000), inline: false },
-          { name: '👤 Dilapor oleh', value: `<@${reporterId}> (${reporterUsername})`, inline: true },
-          { name: '✅ Approved by', value: `${interaction.user.tag}`, inline: true },
-        )
-        .setColor(0x00FF00)
-        .setFooter({ text: `Barter System • ${clan} • ${parsed.dateDisplay}` })
-        .setTimestamp();
+        const parsed = parseTanggalInput(tanggalRaw);
+        
+        // Save - ini wajib sukses
+        const invitations = loadInvitations();
+        const newInv = {
+          id: Date.now().toString(),
+          judul,
+          tanggalRaw,
+          dateKey: parsed.dateKey,
+          dateDisplay: parsed.dateDisplay,
+          day: parsed.day,
+          monthIdx: parsed.monthIdx,
+          year: parsed.year,
+          jam: parsed.jam,
+          clan,
+          catatan,
+          reporterId,
+          reporterTag,
+          reporterUsername,
+          approvedByTag: interaction.user.tag,
+          approvedById: interaction.user.id,
+          timestamp: Date.now()
+        };
+        invitations.push(newInv);
+        saveInvitations(invitations);
+        console.log(`[APPROVE] Saved ${judul} dari ${clan} - ${parsed.dateDisplay} ${parsed.jam}`);
 
-      await invitationCh.send({ content: `@everyone 📨 **INVITATION DARI ${clan.toUpperCase()} - ${judul}**`, embeds: [prettyEmbed] });
+        // Post ke invitation channel - try tanpa @everyone dulu kalau fail
+        const prettyEmbed = new EmbedBuilder()
+          .setTitle(`📨 INVITATION: ${judul}`)
+          .addFields(
+            { name: '🎯 Clan Pengundang', value: `**${clan}**`, inline: true },
+            { name: '📅 Tanggal', value: parsed.dateDisplay, inline: true },
+            { name: '⏰ Jam', value: parsed.jam, inline: true },
+            { name: '📝 Judul (Tipe)', value: judul, inline: false },
+            { name: '📝 Link/Catatan', value: catatan.substring(0,1000), inline: false },
+            { name: '👤 Dilapor oleh', value: `<@${reporterId}>`, inline: true },
+            { name: '✅ Approved by', value: `${interaction.user.tag}`, inline: true },
+          )
+          .setColor(0x00FF00)
+          .setFooter({ text: `Barter System • ${clan} • ${parsed.dateDisplay}` })
+          .setTimestamp();
 
-      // Log ke logs channel
-      await logToLogsChannel(interaction.guild, newInv);
+        try {
+          await invitationCh.send({ content: `@everyone 📨 **INVITATION DARI ${clan.toUpperCase()} - ${judul}**`, embeds: [prettyEmbed] });
+        } catch(err) {
+          console.log('[APPROVE] Send with @everyone fail, try without:', err.message);
+          try {
+            await invitationCh.send({ embeds: [prettyEmbed] });
+          } catch(err2) {
+            console.log('[APPROVE] Send without mention also fail:', err2.message);
+          }
+        }
 
-      // Update board
-      await updateInvitationBoard(interaction.guild);
+        // Log - jangan bikin fail kalau error
+        try { await logToLogsChannel(guild, newInv); } catch(e){ console.log('[APPROVE] log fail', e.message); }
 
-      await interaction.editReply({ content: `✅ **${judul}** dari **${clan}** di-post ke ${invitationCh} + ${logsCh} + board update! Channel hapus 5 detik.` });
-      setTimeout(()=>interaction.channel.delete().catch(()=>{}), 5000);
+        // Update board - jangan bikin fail
+        try { await updateInvitationBoard(guild); } catch(e){ console.log('[APPROVE] board fail', e.message); }
+
+        await interaction.editReply({ content: `✅ **BERHASIL! ${judul}** dari **${clan}** di-post ke ${invitationCh}! Board update! Channel ini kehapus 5 detik.` }).catch(()=>{});
+        
+        setTimeout(()=>{ interaction.channel.delete().catch(()=>{ console.log('[APPROVE] Delete channel fail'); }); }, 5000);
+        
+      } catch(err) {
+        console.error('[APPROVE CRITICAL ERROR]', err);
+        try {
+          await interaction.editReply({ content: `❌ Error approve: ${err.message}\nCoba lagi atau hubungi admin. Channel tetap akan dihapus manual.` }).catch(()=>{});
+          // Tetap hapus channel biar ga numpuk gini terus
+          setTimeout(()=>{ interaction.channel.delete().catch(()=>{}); }, 3000);
+        } catch {}
+      }
     }
 
     if (interaction.isButton() && interaction.customId === 'close_ticket') {
