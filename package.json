@@ -1,17 +1,14 @@
 {
-  "name": "roar-bot",
-  "version": "1.0.0",
-  "description": "",
+  "name": "roar-crew-bot",
+  "version": "2.0.0",
+  "description": "ROAR CREW Discord Bot - Simple Structure + Ticket nyambung Invitation",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
-    "discord.js": "^14.27.0",
-    "dotenv": "^17.4.2"
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5"
   }
 }
