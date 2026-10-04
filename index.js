@@ -379,6 +379,7 @@ const commands = [
     .addStringOption(o=>o.setName('jam').setDescription('Jam: 20:00 WIB').setRequired(true))
     .addStringOption(o=>o.setName('judul').setDescription('Judul event war').setRequired(true))
     .addStringOption(o=>o.setName('catatan').setDescription('Catatan/link grup').setRequired(false)),
+  new SlashCommandBuilder().setName('announce-barter').setDescription('📢 Post announcement aturan wajib barter (Admin)'),
 ].map(c => c.toJSON());
 
 async function registerCommands() {
@@ -613,19 +614,93 @@ client.on(Events.InteractionCreate, async (interaction) => {
         
         return interaction.editReply(`✅ **Berhasil undang balik ${clan}!**\n→ Di-post ke ${eventCh}\n→ Board event di-update\n→ Logs barter selesai ✅`);
       }
+      if (interaction.commandName === 'announce-barter') {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) return interaction.reply({ content: '❌ Hanya Admin!', ephemeral: true });
+        const publicCh = interaction.guild.channels.cache.find(c => c.name === '💬・public-chat');
+        const ticketCh = interaction.guild.channels.cache.find(c => c.name === '🎫・ticket');
+        const invitationCh = interaction.guild.channels.cache.find(c => c.name === '📨・jadwal-invitation');
+        const eventCh = interaction.guild.channels.cache.find(c => c.name === '📅・jadwal-event');
+        const logsCh = interaction.guild.channels.cache.find(c => c.name === '📝・logs');
+        
+        const embed = new EmbedBuilder()
+          .setTitle('📢 ATURAN BARU - INVITATION WAJIB BARTER - ROAR CREW')
+          .setDescription(`@everyone **WAJIB BACA - SISTEM BARTER BARU!**\n\nMulai sekarang setiap clan yang undang ROAR CREW, kita **WAJIB** undang balik! Sistem barter tracking sudah aktif.`)
+          .setColor(0xFF0000)
+          .addFields(
+            { name: '🔄 KENAPA WAJIB BARTER?', value: 
+              '• Clan lain support ROAR, kita harus balas support!\n' +
+              '• Tracking di #logs biar tau clan mana yang sudah/belum dibalas\n' +
+              '• Jaga hubungan baik antar clan - jangan cuma minta diundang tapi ga ngundang balik!\n', inline: false },
+            { name: '📥 KALO DAPET UNDANGAN DARI CLAN LAIN - CARA LAPOR', value:
+              `1️⃣ Pergi ke ${ticketCh || '#ticket'}\n` +
+              `2️⃣ Klik tombol **📨 Lapor Diundang Clan Lain**\n` +
+              `3️⃣ Isi form:\n` +
+              `   • **Judul Event/War**: Contoh: War Persahabatan vs CDM\n` +
+              `   • **Tanggal & Jam**: Contoh: 07 Oktober 2026 20:00 WIB\n` +
+              `   • **Clan Pengundang**: Contoh: CDM, LUNOVE VEXNIGHT\n` +
+              `   • **Link/Catatan**: Link WA/Discord clan pengundang\n` +
+              `4️⃣ Ticket private auto kebikin (inv-username)\n` +
+              `5️⃣ Admin akan **Approve** → Auto post ke ${invitationCh || '#jadwal-invitation'} + board + ${logsCh || '#logs'}\n` +
+              `6️⃣ Status di ${logsCh || '#logs'} = ❌ Belum undang balik\n`, inline: false },
+            { name: '📤 CARA UNDANG BALIK (Khusus Admin/Moderator)', value:
+              `Admin ketik di #bot-cmd:\n` +
+              `\`/undang-balik clan:CDM tanggal:07 Oktober 2026 jam:20:00 WIB judul:War Balasan\`\n\n` +
+              `→ Auto post ke ${eventCh || '#jadwal-event'} + board event + ${logsCh || '#logs'} = ✅ Sudah undang balik\n` +
+              `→ Barter selesai! Clan sudah dibalas supportnya\n`, inline: false },
+            { name: '📅 CEK JADWAL DIMANA?', value:
+              `• ${invitationCh || '#jadwal-invitation'} - Board invitation MASUK (clan lain undang ROAR) - Max 3/hari\n` +
+              `• ${eventCh || '#jadwal-event'} - Board event KELUAR (ROAR undang balik clan lain) - Max 3/hari\n` +
+              `• ${logsCh || '#logs'} - History lengkap siapa pengundang + status barter\n` +
+              `• \`/history-clan\` - Cek clan mana yang paling sering undang\n` +
+              `• \`/roar-help\` - Panduan lengkap semua command\n`, inline: false },
+            { name: '⚠️ ATURAN WAJIB', value:
+              `• **Setiap dapet undangan WAJIB lapor via ticket!** Jangan diem aja!\n` +
+              `• **Jangan spam** - Max 3 invitation per hari di board\n` +
+              `• **Link/grup** wajib dicantumkan biar admin bisa hubungi balik\n` +
+              `• **Cek board dulu** sebelum lapor - jangan bentrok jam!\n` +
+              `• Kalo ga lapor = history ilang = ga bisa diundang balik = clan lain kapok!\n`, inline: false },
+            { name: '🎯 TUJUAN', value:
+              `Biar ROAR CREW dikenal sebagai clan yang **SOLID & SUPPORT BALIK**, bukan clan yang cuma numpang tenar! Clan yang undang kita, kita undang balik - fair!\n\n` +
+              `**Yang udah pernah diundang clan lain tapi belum lapor, silahkan lapor sekarang di ${ticketCh || '#ticket'} ya!**`, inline: false },
+          )
+          .setFooter({ text: 'ROAR CREW • Barter System • Wajib Barter • Support Balik!' })
+          .setTimestamp()
+          .setThumbnail(interaction.guild.iconURL());
+
+        await interaction.reply({ content: '@everyone 📢 **ATURAN BARU WAJIB BACA!**', embeds: [embed] });
+        // Also send to public-chat if exists and different channel
+        if (publicCh && publicCh.id !== interaction.channel.id) {
+          await publicCh.send({ content: '@everyone 📢 **ATURAN BARU WAJIB BACA - BARTER SYSTEM!**', embeds: [embed] }).catch(()=>{});
+        }
+      }
     }
 
-    if (interaction.isButton() && interaction.customId.startsWith('create_ticket')) {
-      const isInv = interaction.customId === 'create_ticket_invitation';
+    // === FIX: Handle SEMUA versi ticket button (old & new) biar ga timeout ===
+    if (interaction.isButton() && (
+      interaction.customId.startsWith('create_ticket') || 
+      interaction.customId.includes('invitation') || 
+      interaction.customId.includes('request') ||
+      interaction.customId.includes('report') ||
+      interaction.customId.includes('bantuan')
+    )) {
+      const id = interaction.customId.toLowerCase();
+      const isInv = id.includes('invitation') || id.includes('request') || id === 'create_ticket_invitation';
+      const isReport = id.includes('report') || id.includes('bantuan') || id === 'create_ticket_report';
+      
       if (isInv) {
-        const modal = new ModalBuilder().setCustomId('modal_invitation').setTitle('Diundang Clan Lain - Lapor');
-        const j = new TextInputBuilder().setCustomId('judul').setLabel('Judul Event/War').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('Contoh: War Persahabatan vs...');
-        const t = new TextInputBuilder().setCustomId('tanggal').setLabel('Tanggal & Jam (Contoh: 05 Okt 2026 20:00)').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('05 Oktober 2026 20:00 WIB');
-        const tar = new TextInputBuilder().setCustomId('target').setLabel('Clan Pengundang (Yang Undang Kita)').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('Contoh: CDM, LUNOVE VEXNIGHT');
-        const c = new TextInputBuilder().setCustomId('catatan').setLabel('Link Grup / Catatan').setStyle(TextInputStyle.Paragraph).setRequired(false).setPlaceholder('Link WA/Discord clan pengundang');
-        modal.addComponents(new ActionRowBuilder().addComponents(j), new ActionRowBuilder().addComponents(t), new ActionRowBuilder().addComponents(tar), new ActionRowBuilder().addComponents(c));
-        return interaction.showModal(modal);
-      } else {
+        try {
+          const modal = new ModalBuilder().setCustomId('modal_invitation').setTitle('Diundang Clan Lain - Lapor');
+          const j = new TextInputBuilder().setCustomId('judul').setLabel('Judul Event/War').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('Contoh: War Persahabatan vs...');
+          const t = new TextInputBuilder().setCustomId('tanggal').setLabel('Tanggal & Jam (Contoh: 05 Okt 2026 20:00)').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('05 Oktober 2026 20:00 WIB');
+          const tar = new TextInputBuilder().setCustomId('target').setLabel('Clan Pengundang (Yang Undang Kita)').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('Contoh: CDM, LUNOVE VEXNIGHT');
+          const c = new TextInputBuilder().setCustomId('catatan').setLabel('Link Grup / Catatan').setStyle(TextInputStyle.Paragraph).setRequired(false).setPlaceholder('Link WA/Discord clan pengundang');
+          modal.addComponents(new ActionRowBuilder().addComponents(j), new ActionRowBuilder().addComponents(t), new ActionRowBuilder().addComponents(tar), new ActionRowBuilder().addComponents(c));
+          return await interaction.showModal(modal);
+        } catch(e) {
+          console.error('[MODAL ERROR]', e);
+          return interaction.reply({ content: '❌ Error buka form, coba lagi! Jika masih error, run /tiket-setup', ephemeral: true }).catch(()=>{});
+        }
+      } else if (isReport) {
         await interaction.deferReply({ ephemeral: true });
         const guild = interaction.guild;
         const category = guild.channels.cache.find(c => c.name === '│ SUPPORT' && c.type === ChannelType.GuildCategory);
@@ -638,10 +713,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
             { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ManageChannels] },
           ]
         });
-        const embed = new EmbedBuilder().setTitle('🚨 Ticket Report').setDescription(`Halo ${interaction.user}`).setColor(0x95A5A6);
-        const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('close_ticket').setLabel('🔒 Close').setStyle(ButtonStyle.Danger));
+        const embed = new EmbedBuilder().setTitle('🚨 Ticket Report').setDescription(`Halo ${interaction.user} - Silahkan tulis laporan/bantuan kamu di sini`).setColor(0x95A5A6);
+        const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('close_ticket').setLabel('🔒 Close Ticket').setStyle(ButtonStyle.Danger));
         await channel.send({ content: `${interaction.user}`, embeds: [embed], components: [row] });
-        return interaction.editReply({ content: `✅ Ticket: ${channel}` });
+        return interaction.editReply({ content: `✅ Ticket report: ${channel}` });
       }
     }
 
