@@ -190,6 +190,18 @@ async function cleanOldStructure(guild) {
 }
 
 
+async function updateMemberStats(guild) {
+  try {
+    const memberCount = guild.memberCount;
+    const statsVoice = guild.channels.cache.find(c => c.name.startsWith('👥・Member:'));
+    if (statsVoice && statsVoice.type === 2) { // GuildVoice = 2
+      if (statsVoice.name !== `👥・Member: ${memberCount}`) {
+        await statsVoice.setName(`👥・Member: ${memberCount}`).catch(()=>{});
+      }
+    }
+  } catch(e) { console.error('[STATS]', e.message) }
+}
+
 async function sendTicketEmbed(guild) {
   const ticketChannel = guild.channels.cache.find(c => c.name === '🎫・ticket');
   if (!ticketChannel) return;
