@@ -216,12 +216,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
       if (interaction.customId === 'approve_invitation') {
         const invitationCh = interaction.guild.channels.cache.find(c => c.name === '📨・jadwal-invitation');
+        if (!invitationCh) return interaction.reply({ content: '❌ Channel 📨・jadwal-invitation tidak ada!', ephemeral: true });
         const messages = await interaction.channel.messages.fetch({ limit: 20 });
-        const botEmbedMsg = messages.find(m => m.embeds.length > 0 && m.embeds[0].title?.includes('Request Invitation'));
-        if (!botEmbedMsg) return interaction.reply({ content: 'Data tidak ditemukan', ephemeral: true });
-        const forwardEmbed = EmbedBuilder.from(botEmbedMsg.embeds[0]).setColor(0xE74C3C).setFooter({ text: `Approved by ${interaction.user.tag}` });
-        await invitationCh.send({ content: '@everyone 📨 **INVITATION DI-APPROVE**', embeds: [forwardEmbed] });
-        await interaction.reply({ content: `✅ Di-post ke ${invitationCh}!` });
+        // FIX: cari embed yang judulnya mengandung "Diundang" (judul baru) bukan "Request Invitation" (judul lama)
+        const botEmbedMsg = messages.find(m => m.embeds.length > 0 && (m.embeds[0].title?.includes('Diundang') || m.embeds[0].title?.includes('INVITATION') || m.embeds[0].title?.includes('Request')));
+        if (!botEmbedMsg) return interaction.reply({ content: 'Data tidak ditemukan - embed hilang', ephemeral: true });
+        const forwardEmbed = EmbedBuilder.from(botEmbedMsg.embeds[0]).setColor(0xE74C3C).setFooter({ text: `Approved by ${interaction.user.tag} • Clan Pengundang: ${botEmbedMsg.embeds[0].fields?.find(f=>f.name.includes('Diundang'))?.value||'-'}` });
+        await invitationCh.send({ content: '@everyone 📨 **INVITATION DARI CLAN LAIN - DI-APPROVE**', embeds: [forwardEmbed] });
+        await interaction.reply({ content: `✅ Di-post ke ${invitationCh}! Channel ini akan kehapus 5 detik.` });
         setTimeout(()=>interaction.channel.delete().catch(()=>{}), 5000);
       }
       if (interaction.customId === 'close_ticket') {
